@@ -5,6 +5,7 @@
   padding: 20px;
   display: flex;
   flex-direction: column;
+  min-width: 0;
 }
 
 .chart-header {

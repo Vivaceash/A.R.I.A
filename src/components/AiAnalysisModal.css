@@ -1,0 +1,154 @@
+.ai-analysis-modal {
+  max-width: 900px;
+  max-height: 85vh;
+  border-radius: var(--radius-lg);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+  box-shadow: 0 0 30px rgba(59, 130, 246, 0.15);
+}
+
+.ai-avatar-badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
+  color: white;
+  box-shadow: 0 0 10px rgba(139, 92, 246, 0.4);
+}
+
+.ai-spark-icon {
+  animation: pulse-sparkle 2s infinite ease-in-out;
+}
+
+@keyframes pulse-sparkle {
+  0%, 100% { transform: scale(1); opacity: 0.9; }
+  50% { transform: scale(1.15); opacity: 1; filter: drop-shadow(0 0 3px #fff); }
+}
+
+.modal-subtitle {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+  font-family: monospace;
+}
+
+/* Rendered Markdown Styling */
+.markdown-body-rendered {
+  color: var(--text-primary);
+  line-height: 1.6;
+  font-size: 14px;
+}
+
+.markdown-para-spacing {
+  height: 12px;
+}
+
+.markdown-h1 {
+  font-size: 22px;
+  font-weight: 700;
+  margin-top: 20px;
+  margin-bottom: 12px;
+  color: var(--text-primary);
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 8px;
+}
+
+.markdown-h2 {
+  font-size: 18px;
+  font-weight: 600;
+  margin-top: 18px;
+  margin-bottom: 10px;
+  color: var(--text-primary);
+}
+
+.markdown-h3 {
+  font-size: 16px;
+  font-weight: 600;
+  margin-top: 14px;
+  margin-bottom: 8px;
+  color: var(--text-primary);
+}
+
+.markdown-p {
+  margin-bottom: 10px;
+  color: var(--text-secondary);
+}
+
+.markdown-list {
+  padding-left: 20px;
+  margin-bottom: 10px;
+  list-style-type: disc;
+}
+
+.markdown-list li {
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+
+.markdown-inline-code {
+  font-family: 'Courier New', Courier, monospace;
+  background-color: rgba(255, 255, 255, 0.06);
+  color: var(--badge-high-text);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+[data-theme='light'] .markdown-inline-code {
+  background-color: rgba(0, 0, 0, 0.04);
+  color: var(--accent-danger);
+  border-color: rgba(0, 0, 0, 0.05);
+}
+
+.markdown-hr {
+  border: 0;
+  height: 1px;
+  background-color: var(--border-color);
+  margin: 20px 0;
+}
+
+/* Table styling for a modern, high-tech dashboard look */
+.markdown-table-wrapper {
+  overflow-x: auto;
+  margin: 16px 0;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-color);
+  background-color: rgba(255, 255, 255, 0.01);
+}
+
+.markdown-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+.markdown-table th, .markdown-table td {
+  padding: 10px 14px;
+  font-size: 13px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.markdown-table th {
+  background-color: rgba(255, 255, 255, 0.03);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.markdown-table td {
+  color: var(--text-secondary);
+}
+
+.markdown-table tr:last-child td {
+  border-bottom: none;
+}
+
+[data-theme='light'] .markdown-table th {
+  background-color: rgba(0, 0, 0, 0.02);
+}
+
+[data-theme='light'] .markdown-table-wrapper {
+  background-color: transparent;
+}

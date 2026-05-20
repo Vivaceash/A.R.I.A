@@ -156,6 +156,7 @@
   margin: 0 0 12px 0;
   color: var(--text-secondary);
   font-size: 14px;
+  white-space: pre-wrap;
 }
 
 .alerta-card-badge {
@@ -299,4 +300,26 @@
 
 .resolved-by-info strong {
   color: var(--accent-primary);
+}
+
+.view-analysis-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background-color: var(--accent-primary-dim);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  color: var(--accent-primary);
+  padding: 10px 16px;
+  border-radius: var(--radius-md);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  margin-right: 12px;
+}
+
+.view-analysis-btn:hover {
+  background-color: var(--accent-primary);
+  color: white;
+  box-shadow: 0 0 12px rgba(59, 130, 246, 0.4);
 }

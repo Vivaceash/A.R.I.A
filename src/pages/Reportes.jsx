@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { FileWarning, AlertTriangle, AlertCircle, FileText, Search, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
+import { FileWarning, AlertTriangle, AlertCircle, FileText, Search, ArrowUpDown, ArrowUp, ArrowDown, Sparkles } from 'lucide-react';
 import Header from '../components/Header';
+import AiAnalysisModal from '../components/AiAnalysisModal';
 import './Reportes.css';
 
 function Reportes() {
@@ -10,20 +11,61 @@ function Reportes() {
   const [sortConfig, setSortConfig] = useState({ key: null, direction: null });
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(25);
+  const [selectedAlertForAnalysis, setSelectedAlertForAnalysis] = useState(null);
+  const [isAnalysisModalOpen, setIsAnalysisModalOpen] = useState(false);
+
+  const handleViewAnalysis = (alert) => {
+    setSelectedAlertForAnalysis(alert);
+    setIsAnalysisModalOpen(true);
+  };
+
+  const fetchReports = async () => {
+    try {
+      const response = await fetch('/api/reports');
+      const data = await response.json();
+      setReports(data);
+    } catch (err) {
+      console.error('Error fetching reports:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const fetchReports = async () => {
-      try {
-        const response = await fetch(`http://${window.location.hostname}:8000/api/reports`);
-        const data = await response.json();
-        setReports(data);
-      } catch (err) {
-        console.error('Error fetching reports:', err);
-      } finally {
-        setLoading(false);
-      }
-    };
     fetchReports();
+
+    let ws;
+    let reconnectTimeout;
+    const connect = () => {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      ws = new WebSocket(`${protocol}//${window.location.host}/api/ws`);
+      
+      ws.onmessage = (event) => {
+        try {
+          const message = JSON.parse(event.data);
+          if (message.type === 'modified' || message.type === 'deleted' || message.type === 'created' || message.type === 'resolved') {
+            fetchReports();
+          }
+        } catch (e) {
+          // ignore
+        }
+      };
+
+      ws.onclose = () => {
+        reconnectTimeout = setTimeout(connect, 3000);
+      };
+
+      ws.onerror = () => {
+        ws.close();
+      };
+    };
+
+    connect();
+
+    return () => {
+      if (ws) ws.close();
+      if (reconnectTimeout) clearTimeout(reconnectTimeout);
+    };
   }, []);
 
   const handleSort = (key) => {
@@ -174,7 +216,22 @@ function Reportes() {
                       </div>
                     </td>
                     <td>{report.type}</td>
-                    <td>{report.description}</td>
+                    <td>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
+                        <span>{report.description}</span>
+                        {report.aiAnalysis && (
+                          <button 
+                            className="view-analysis-btn-table" 
+                            onClick={() => handleViewAnalysis(report)}
+                            title="Ver Auditoría IA"
+                            style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'var(--accent-primary-dim)', border: '1px solid rgba(59, 130, 246, 0.2)', color: 'var(--accent-primary)', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', fontWeight: '500', whiteSpace: 'nowrap' }}
+                          >
+                            <Sparkles size={12} />
+                            <span>Auditoría IA</span>
+                          </button>
+                        )}
+                      </div>
+                    </td>
                     <td>
                       <span className={`badge ${report.severity === 'Alto' ? 'badge-high' : (report.severity === 'Medio' ? 'badge-medium' : 'badge-low')}`}>
                         {report.severity}
@@ -214,6 +271,11 @@ function Reportes() {
           </div>
         )}
       </div>
+      <AiAnalysisModal 
+        isOpen={isAnalysisModalOpen}
+        onClose={() => setIsAnalysisModalOpen(false)}
+        alert={selectedAlertForAnalysis}
+      />
     </>
   );
 }

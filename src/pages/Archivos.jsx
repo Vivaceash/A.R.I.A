@@ -60,7 +60,7 @@ function Archivos() {
   useEffect(() => {
     const fetchFiles = async () => {
       try {
-        const response = await fetch(`http://${window.location.hostname}:8000/api/files`);
+        const response = await fetch('/api/files');
         if (!response.ok) throw new Error('Error al obtener archivos');
         const data = await response.json();
         setFiles(data);
@@ -145,7 +145,7 @@ function Archivos() {
   const handleDownload = (filename) => {
     // Create an invisible anchor element to trigger the download
     const link = document.createElement('a');
-    link.href = `http://${window.location.hostname}:8000/api/download/${filename}`;
+    link.href = `/api/download/${filename}`;
     link.setAttribute('download', filename);
     document.body.appendChild(link);
     link.click();
@@ -154,7 +154,7 @@ function Archivos() {
 
   const handleOpenFolder = async () => {
     try {
-      await fetch(`http://${window.location.hostname}:8000/api/open-folder`, {
+      await fetch('/api/open-folder', {
         method: 'POST'
       });
     } catch (error) {

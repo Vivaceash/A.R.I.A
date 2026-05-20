@@ -8,6 +8,7 @@ import Dashboard from './pages/Dashboard';
 import Reportes from './pages/Reportes';
 import Archivos from './pages/Archivos';
 import Alertas from './pages/Alertas';
+import Chat from './pages/Chat';
 import { ThemeProvider } from './contexts/ThemeContext';
 
 function App() {
@@ -15,22 +16,42 @@ function App() {
   const toastTimeout = useRef(null);
 
   useEffect(() => {
-    const ws = new WebSocket(`ws://${window.location.hostname}:8000/api/ws`);
-    ws.onmessage = (event) => {
-      try {
-        const message = JSON.parse(event.data);
-        if (message.type === 'modified' || message.type === 'deleted' || message.type === 'created') {
-          if (message.alert) {
-            setToastAlert(message.alert);
-            if (toastTimeout.current) clearTimeout(toastTimeout.current);
-            toastTimeout.current = setTimeout(() => setToastAlert(null), 5000);
+    let ws;
+    let reconnectTimeout;
+    const connect = () => {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      ws = new WebSocket(`${protocol}//${window.location.host}/api/ws`);
+      
+      ws.onmessage = (event) => {
+        try {
+          const message = JSON.parse(event.data);
+          if (message.type === 'modified' || message.type === 'deleted' || message.type === 'created') {
+            if (message.alert) {
+              setToastAlert(message.alert);
+              if (toastTimeout.current) clearTimeout(toastTimeout.current);
+              toastTimeout.current = setTimeout(() => setToastAlert(null), 5000);
+            }
           }
+        } catch (e) {
+          // ignore
         }
-      } catch (e) {
-        // ignore
-      }
+      };
+
+      ws.onclose = () => {
+        reconnectTimeout = setTimeout(connect, 3000);
+      };
+
+      ws.onerror = () => {
+        ws.close();
+      };
     };
-    return () => ws.close();
+
+    connect();
+
+    return () => {
+      if (ws) ws.close();
+      if (reconnectTimeout) clearTimeout(reconnectTimeout);
+    };
   }, []);
 
   return (
@@ -43,8 +64,8 @@ function App() {
                {toastAlert.iconClass === 'icon-danger' ? <AlertTriangle size={24} color="#EF4444" /> : <Info size={24} color="#3B82F6" />}
             </div>
             <div className="toast-content">
-              <h4>{toastAlert.title}</h4>
-              <p>{toastAlert.description}</p>
+               <h4>{toastAlert.title}</h4>
+               <p>{toastAlert.description && toastAlert.description.length > 120 ? toastAlert.description.split('\n')[0].substring(0, 120) + '...' : toastAlert.description}</p>
             </div>
             <button className="toast-close" onClick={() => setToastAlert(null)}>
               <X size={16} />
@@ -58,6 +79,7 @@ function App() {
             <Route path="/reportes" element={<Reportes />} />
             <Route path="/archivos" element={<Archivos />} />
             <Route path="/alertas" element={<Alertas />} />
+            <Route path="/chat" element={<Chat />} />
           </Routes>
         </div>
       </div>

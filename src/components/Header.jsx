@@ -14,7 +14,7 @@ const Header = ({ title = "Dashboard", timeframe, setTimeframe, showTimeframe = 
 
   const fetchAlerts = async () => {
     try {
-      const response = await fetch(`http://${window.location.hostname}:8000/api/reports`);
+      const response = await fetch('/api/reports');
       if (response.ok) {
         const data = await response.json();
         setAlerts(data.slice(0, 5)); // We only need the latest 5 for the header dropdown
@@ -27,7 +27,8 @@ const Header = ({ title = "Dashboard", timeframe, setTimeframe, showTimeframe = 
   useEffect(() => {
     fetchAlerts();
     
-    const ws = new WebSocket(`ws://${window.location.hostname}:8000/api/ws`);
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const ws = new WebSocket(`${protocol}//${window.location.host}/api/ws`);
     ws.onmessage = (event) => {
       try {
         const message = JSON.parse(event.data);
@@ -110,7 +111,7 @@ const Header = ({ title = "Dashboard", timeframe, setTimeframe, showTimeframe = 
                       </div>
                       <div className="dropdown-alert-content">
                         <h5>{alert.title}</h5>
-                        <p>{alert.description}</p>
+                        <p>{alert.description && alert.description.length > 80 ? alert.description.split('\n')[0].substring(0, 80) + '...' : alert.description}</p>
                         <span className="dropdown-alert-time">{alert.time}</span>
                       </div>
                     </div>

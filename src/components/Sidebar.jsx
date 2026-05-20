@@ -3,6 +3,7 @@ import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard,
   FileText,
+  MessageSquare,
   ArrowLeftRight,
   Bell,
   ClipboardList,
@@ -37,6 +38,10 @@ const Sidebar = () => {
         <NavLink to="/archivos" className={({ isActive }) => isActive ? "nav-item active" : "nav-item"} onClick={() => setIsOpen(false)}>
           <FileText />
           Archivos
+        </NavLink>
+        <NavLink to="/chat" className={({ isActive }) => isActive ? "nav-item active" : "nav-item"} onClick={() => setIsOpen(false)}>
+          <MessageSquare />
+          Chat
         </NavLink>
         <a href="#" className="nav-item">
           <ArrowLeftRight />

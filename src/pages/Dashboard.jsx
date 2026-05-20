@@ -21,16 +21,13 @@ function Dashboard() {
 
   const fetchData = useCallback(async () => {
     try {
-      const response = await fetch(`http://${window.location.hostname}:8000/api/stats?period=${timeframe}`);
+      const response = await fetch(`/api/stats?period=${timeframe}`);
       if (response.ok) {
         const result = await response.json();
         setData(result);
-      }
-      
-      const reportsResponse = await fetch(`http://${window.location.hostname}:8000/api/reports`);
-      if (reportsResponse.ok) {
-        const reportsResult = await reportsResponse.json();
-        setAllAlerts(reportsResult);
+        if (result.alerts) {
+          setAllAlerts(result.alerts);
+        }
       }
     } catch (e) {
       console.error('Error fetching dashboard data:', e);
@@ -42,21 +39,39 @@ function Dashboard() {
   }, [fetchData]);
 
   useEffect(() => {
-    ws.current = new WebSocket(`ws://${window.location.hostname}:8000/api/ws`);
+    let wsInstance;
+    let reconnectTimeout;
 
-    ws.current.onmessage = (event) => {
-      try {
-        const message = JSON.parse(event.data);
-        if (message.type === 'modified' || message.type === 'deleted' || message.type === 'created') {
-          fetchData();
+    const connect = () => {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      wsInstance = new WebSocket(`${protocol}//${window.location.host}/api/ws`);
+      ws.current = wsInstance;
+
+      wsInstance.onmessage = (event) => {
+        try {
+          const message = JSON.parse(event.data);
+          if (['modified', 'deleted', 'created', 'resolved'].includes(message.type)) {
+            fetchData();
+          }
+        } catch (e) {
+          console.error('Error parseando mensaje WS', e);
         }
-      } catch (e) {
-        console.error('Error parseando mensaje WS', e);
-      }
+      };
+
+      wsInstance.onclose = () => {
+        reconnectTimeout = setTimeout(connect, 3000);
+      };
+
+      wsInstance.onerror = () => {
+        wsInstance.close();
+      };
     };
 
+    connect();
+
     return () => {
-      if (ws.current) ws.current.close();
+      if (wsInstance) wsInstance.close();
+      if (reconnectTimeout) clearTimeout(reconnectTimeout);
     };
   }, [fetchData]);
 

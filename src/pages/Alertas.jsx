@@ -1,9 +1,8 @@
 import { useState, useEffect } from 'react';
 import Header from '../components/Header';
-import { AlertTriangle, Info, CheckCircle, Search } from 'lucide-react';
+import { AlertTriangle, Info, CheckCircle, Search, ChevronDown, ChevronUp, Sparkles } from 'lucide-react';
+import AiAnalysisModal from '../components/AiAnalysisModal';
 import './Alertas.css';
-
-import { ChevronDown, ChevronUp } from 'lucide-react';
 
 function Alertas() {
   const [activeAlerts, setActiveAlerts] = useState([]);
@@ -12,11 +11,18 @@ function Alertas() {
   const [searchTerm, setSearchTerm] = useState('');
   const [resolvingId, setResolvingId] = useState(null);
   const [showResolved, setShowResolved] = useState(false);
+  const [selectedAlertForAnalysis, setSelectedAlertForAnalysis] = useState(null);
+  const [isAnalysisModalOpen, setIsAnalysisModalOpen] = useState(false);
+
+  const handleViewAnalysis = (alert) => {
+    setSelectedAlertForAnalysis(alert);
+    setIsAnalysisModalOpen(true);
+  };
 
   const fetchAlerts = async () => {
     try {
       // Re-use the existing endpoint but parse out unresolved alerts
-      const response = await fetch(`http://${window.location.hostname}:8000/api/reports`);
+      const response = await fetch('/api/reports');
       if (!response.ok) throw new Error('Error al conectar con la API');
       const data = await response.json();
       
@@ -35,19 +41,38 @@ function Alertas() {
   useEffect(() => {
     fetchAlerts();
     
-    // Listen for real-time alerts
-    const ws = new WebSocket(`ws://${window.location.hostname}:8000/api/ws`);
-    ws.onmessage = (event) => {
-      try {
-        const message = JSON.parse(event.data);
-        if (message.type === 'modified' || message.type === 'deleted' || message.type === 'created' || message.type === 'resolved') {
-          fetchAlerts();
+    let ws;
+    let reconnectTimeout;
+    const connect = () => {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      ws = new WebSocket(`${protocol}//${window.location.host}/api/ws`);
+      
+      ws.onmessage = (event) => {
+        try {
+          const message = JSON.parse(event.data);
+          if (message.type === 'modified' || message.type === 'deleted' || message.type === 'created' || message.type === 'resolved') {
+            fetchAlerts();
+          }
+        } catch (e) {
+          // ignore
         }
-      } catch (e) {
-        // ignore
-      }
+      };
+
+      ws.onclose = () => {
+        reconnectTimeout = setTimeout(connect, 3000);
+      };
+
+      ws.onerror = () => {
+        ws.close();
+      };
     };
-    return () => ws.close();
+
+    connect();
+
+    return () => {
+      if (ws) ws.close();
+      if (reconnectTimeout) clearTimeout(reconnectTimeout);
+    };
   }, []);
 
   const resolveAlert = async (id) => {
@@ -56,7 +81,7 @@ function Alertas() {
     // Wait for the green pulse animation
     setTimeout(async () => {
       try {
-        await fetch(`http://${window.location.hostname}:8000/api/alertas/${id}/resolve`, { 
+        await fetch(`/api/alertas/${id}/resolve`, { 
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ user: 'Administrador Local' })
@@ -129,6 +154,12 @@ function Alertas() {
                 </div>
                 
                 <div className="alerta-card-actions">
+                  {alert.aiAnalysis && (
+                    <button className="view-analysis-btn" onClick={() => handleViewAnalysis(alert)}>
+                      <Sparkles size={18} />
+                      <span>Ver Auditoría IA</span>
+                    </button>
+                  )}
                   <button className="resolve-btn" onClick={() => resolveAlert(alert.id)} disabled={resolvingId === alert.id}>
                     <CheckCircle size={18} />
                     <span>{resolvingId === alert.id ? 'Resolviendo...' : 'Marcar Resuelto'}</span>
@@ -162,9 +193,15 @@ function Alertas() {
                         <span className="alerta-card-time">{new Date(alert.timestamp).toLocaleString()}</span>
                       </div>
                       <p className="alerta-card-desc">{alert.description}</p>
-                      <div className="resolved-by-info">
+                      <div className="resolved-by-info" style={{ marginBottom: alert.aiAnalysis ? '12px' : '0' }}>
                         Resuelto por <strong>{alert.resolvedBy || 'Desconocido'}</strong> el {alert.resolvedAt ? new Date(alert.resolvedAt).toLocaleString() : ''}
                       </div>
+                      {alert.aiAnalysis && (
+                        <button className="view-analysis-btn-inline" onClick={() => handleViewAnalysis(alert)} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(59, 130, 246, 0.1)', border: '1px solid rgba(59, 130, 246, 0.2)', color: 'var(--accent-primary)', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: '500', width: 'fit-content' }}>
+                          <Sparkles size={14} />
+                          <span>Ver Auditoría IA</span>
+                        </button>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -176,6 +213,11 @@ function Alertas() {
           </div>
         )}
       </div>
+      <AiAnalysisModal 
+        isOpen={isAnalysisModalOpen}
+        onClose={() => setIsAnalysisModalOpen(false)}
+        alert={selectedAlertForAnalysis}
+      />
     </>
   );
 }

@@ -40,6 +40,14 @@ def init_db():
             timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     ''')
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS file_snapshots (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            filename TEXT,
+            content TEXT,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
     try:
         c.execute('ALTER TABLE alert_history ADD COLUMN resolved BOOLEAN DEFAULT 0')
     except sqlite3.OperationalError:
@@ -64,21 +72,59 @@ def init_db():
         c.execute('ALTER TABLE alert_history ADD COLUMN owner TEXT')
     except sqlite3.OperationalError:
         pass
+    try:
+        c.execute('ALTER TABLE alert_history ADD COLUMN ai_analysis TEXT')
+    except sqlite3.OperationalError:
+        pass
     conn.commit()
     conn.close()
+    
+    # Run database migration to split existing long AI markdown text to ai_analysis
+    migrate_existing_data()
+
+def migrate_existing_data():
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    try:
+        c.execute("SELECT id, filename, description FROM alert_history WHERE event_type = 'Comparación' AND (ai_analysis IS NULL OR ai_analysis = '')")
+        rows = c.fetchall()
+        for row_id, filename, desc in rows:
+            if desc and (desc.startswith("Análisis de cambios") or "\n" in desc or "Análisis" in desc):
+                short_desc = f"Se detectaron cambios en '{filename}' y se generó una auditoría gramatical/ortográfica."
+                c.execute("UPDATE alert_history SET description = ?, ai_analysis = ? WHERE id = ?", (short_desc, desc, row_id))
+        conn.commit()
+    except Exception as e:
+        print(f"Error migrating alert history: {e}")
+    finally:
+        conn.close()
 
 init_db()
 
-def log_event(alert_id, filename, description, event_type, severity, icon_class, timestamp=None, file_path=None, file_size=None, owner=None):
+def save_file_snapshot(filename, content):
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute('INSERT INTO file_snapshots (filename, content) VALUES (?, ?)', (filename, content))
+    conn.commit()
+    conn.close()
+
+def get_latest_snapshots(filename, limit=2):
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute('SELECT content, timestamp FROM file_snapshots WHERE filename = ? ORDER BY timestamp DESC LIMIT ?', (filename, limit))
+    rows = c.fetchall()
+    conn.close()
+    return rows
+
+def log_event(alert_id, filename, description, event_type, severity, icon_class, timestamp=None, file_path=None, file_size=None, owner=None, ai_analysis=None):
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
     if not timestamp:
         timestamp = datetime.now().isoformat()
         
     c.execute('''
-        INSERT OR IGNORE INTO alert_history (id, filename, description, event_type, severity, icon_class, timestamp, file_path, file_size, owner)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ''', (alert_id, filename, description, event_type, severity, icon_class, timestamp, file_path, file_size, owner))
+        INSERT OR IGNORE INTO alert_history (id, filename, description, event_type, severity, icon_class, timestamp, file_path, file_size, owner, ai_analysis)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (alert_id, filename, description, event_type, severity, icon_class, timestamp, file_path, file_size, owner, ai_analysis))
     conn.commit()
     conn.close()
 
@@ -87,7 +133,7 @@ def get_alert_history(limit=50, hours=None):
     c = conn.cursor()
     
     # Query all, order by newest, and we'll filter robustly in Python
-    c.execute('SELECT id, filename, description, event_type, severity, icon_class, timestamp, resolved, resolved_by, resolved_at, file_path, file_size, owner FROM alert_history ORDER BY timestamp DESC LIMIT 500')
+    c.execute('SELECT id, filename, description, event_type, severity, icon_class, timestamp, resolved, resolved_by, resolved_at, file_path, file_size, owner, ai_analysis FROM alert_history ORDER BY timestamp DESC LIMIT 500')
     rows = c.fetchall()
     conn.close()
     
@@ -124,7 +170,8 @@ def get_alert_history(limit=50, hours=None):
             "resolvedAt": r[9],
             "filePath": r[10],
             "fileSize": r[11],
-            "owner": r[12]
+            "owner": r[12],
+            "aiAnalysis": r[13]
         })
         if len(alerts) >= limit:
             break
@@ -245,24 +292,30 @@ seed_initial_history()
 @app.get("/api/stats")
 def get_stats(period: str = "24h"):
     hours = {"24h": 24, "7d": 24*7, "30d": 24*30}.get(period, 24)
-    files = get_files_data(hours)
-    total_analyzed = len(files)
     
-    recent_activity = []
-    for idx, f in enumerate(files[:5]):
-        recent_activity.append({
-            "id": idx + 1,
-            "description": f"Se modificó {f['name']} por {f['owner']}",
-            "time": calculate_time_ago(f['mtime'])
-        })
-
     # Fetch all DB alerts for the timeframe
     all_db_alerts = get_alert_history(limit=1000, hours=hours)
     
-    # Calculate pie chart using severity
+    # Total analyzed is the number of file modifications, creations, deletions, and comparisons logged
+    total_analyzed = len(all_db_alerts)
+    
+    # Count comparison events in the timeframe
+    comparaciones = len([a for a in all_db_alerts if a.get("type") == "Comparación"])
+    
+    recent_activity = []
+    for idx, alert in enumerate(all_db_alerts[:5]):
+        recent_activity.append({
+            "id": idx + 1,
+            "description": alert.get("description", ""),
+            "time": calculate_time_ago(alert.get("timestamp", ""))
+        })
+    
+    # Calculate pie chart using severity (excluding resolved alerts)
     pie_chart_data = {'Alto': 0, 'Medio': 0, 'Bajo': 0}
     extension_chart_data = {}
     for alert in all_db_alerts:
+        if alert.get("resolved"):
+            continue
         sev = alert.get("severity", "Bajo")
         if sev in pie_chart_data:
             pie_chart_data[sev] += 1
@@ -331,7 +384,7 @@ def get_stats(period: str = "24h"):
 
     active_alerts = pie_chart_data['Alto'] + pie_chart_data['Medio']
     
-    latest_alerts = all_db_alerts[:5]
+    latest_alerts = [a for a in all_db_alerts if not a.get("resolved")][:5]
         
     # Generate continuous timeline buckets for the chart
     line_chart_data = []
@@ -380,14 +433,15 @@ def get_stats(period: str = "24h"):
         "metrics": {
             "archivos_analizados": total_analyzed,
             "alertas_activas": active_alerts,
-            "comparaciones": total_analyzed * 2,
+            "comparaciones": comparaciones,
             "riesgo_promedio": "Alto" if any(a.get("severity") == "Alto" for a in latest_alerts) else ("Medio" if active_alerts > 0 else "Bajo")
         },
         "pieChart": pie_data_array,
         "extensionPieChart": extension_data_array,
         "lineChart": line_chart_data,
         "latestAlerts": latest_alerts,
-        "recentActivity": recent_activity
+        "recentActivity": recent_activity,
+        "alerts": all_db_alerts
     }
 
 @app.get("/api/reports")
@@ -440,6 +494,245 @@ async def resolve_alert(alert_id: str, payload: ResolvePayload):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+def build_realtime_system_status(current_path="/chat"):
+    try:
+        # 1. Date and time
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        # 2. Get alerts stats
+        alerts = get_alert_history(limit=1000)
+        total_alerts = len(alerts)
+        resolved_count = sum(1 for a in alerts if a["resolved"])
+        active_count = sum(1 for a in alerts if not a["resolved"])
+        
+        severity_counts = {"Alto": 0, "Medio": 0, "Bajo": 0}
+        active_list = []
+        for a in alerts:
+            if not a["resolved"]:
+                sev = a.get("severity", "Bajo")
+                if sev in severity_counts:
+                    severity_counts[sev] += 1
+                if len(active_list) < 10:
+                    active_list.append(f"  * [{a['severity']}] {a['title']} - {a['description']} (ID: {a['id']})")
+        
+        active_actionable = severity_counts['Alto'] + severity_counts['Medio']
+        active_low = severity_counts['Bajo']
+
+        # 3. Get directory files
+        files = get_files_data()
+        file_summary = []
+        for f in files:
+            file_summary.append(f"  * {f['name']} - {f['size']} bytes (Modificado por {f['owner']} en {f['mtime']})")
+        
+        # Format strings
+        active_alerts_str = "\n".join(active_list) if active_list else "  * Sin alertas activas."
+        files_str = "\n".join(file_summary) if file_summary else "  * Sin archivos en el directorio."
+        
+        status = f"""[ESTADO EN TIEMPO REAL DEL SISTEMA - {now_str}]
+- Ruta actual de navegación del usuario: {current_path}
+- Estadísticas de Alertas (Base de Datos):
+  * Alertas Totales (Historial): {total_alerts}
+  * Alertas Resueltas: {resolved_count}
+  * Alertas Activas Totales (Sin Resolver en DB): {active_count}
+- Desglose de Alertas Activas por Visibilidad en la Plataforma:
+  * Alertas en la Interfaz (Centro de Alertas): {active_actionable} (Alto: {severity_counts['Alto']}, Medio: {severity_counts['Medio']})
+  * Alertas Ocultas por Ruido (Bajo Impacto, no mostradas en el Centro de Alertas): {active_low} (Bajo: {severity_counts['Bajo']})
+- Últimas Alertas Activas Registradas:
+{active_alerts_str}
+- Archivos en Directorio Local ('/home/astra/concilio'):
+{files_str}"""
+        return status, active_count, active_actionable
+    except Exception as e:
+        return f"[Error al compilar estado en tiempo real: {str(e)}]", 0, 0
+
+class PageContext(BaseModel):
+    currentPath: str = "/chat"
+
+class ChatMessage(BaseModel):
+    role: str
+    content: str
+
+class ChatPayload(BaseModel):
+    messages: list[ChatMessage]
+    pageContext: PageContext = None
+
+@app.post("/api/chat")
+async def chat_endpoint(payload: ChatPayload):
+    import urllib.request
+    import urllib.error
+    import json
+    from fastapi.responses import StreamingResponse
+    from rag_engine import get_directory_chunks, retrieve_context
+    
+    # 1. Get latest query
+    latest_query = ""
+    if payload.messages:
+        latest_query = payload.messages[-1].content
+        
+    # 2. Get RAG context
+    try:
+        chunks = get_directory_chunks(DIRECTORY)
+        rag_context = retrieve_context(latest_query, chunks, top_k=4)
+    except Exception as e:
+        print(f"Error in RAG retrieval: {e}")
+        rag_context = f"Error al recuperar contexto de documentos locales: {str(e)}"
+
+    # 2.5 Get Comparison snapshots context if applicable
+    comparison_context = ""
+    comparison_instruction = ""
+    query_lower = latest_query.lower()
+    if any(keyword in query_lower for keyword in ["compara", "cambio", "diferencia", "version", "versión"]):
+        files = os.listdir(DIRECTORY) if os.path.exists(DIRECTORY) else []
+        matched_filename = None
+        # Try full filename match first
+        for f in files:
+            if f.lower() in query_lower:
+                matched_filename = f
+                break
+        # Try name without extension match next
+        if not matched_filename:
+            for f in files:
+                name_without_ext, _ = os.path.splitext(f.lower())
+                if len(name_without_ext) > 2 and name_without_ext in query_lower:
+                    matched_filename = f
+                    break
+        
+        if matched_filename:
+            snapshots = get_latest_snapshots(matched_filename, limit=2)
+            if len(snapshots) >= 2:
+                old_snap = snapshots[1][0].replace('\ufeff', '').strip()
+                old_time = snapshots[1][1]
+                new_snap = snapshots[0][0].replace('\ufeff', '').strip()
+                new_time = snapshots[0][1]
+                
+                comparison_instruction = f"""[INSTRUCCIÓN CRÍTICA DE COMPARACIÓN]
+El usuario desea comparar el archivo '{matched_filename}' o ver sus cambios.
+Debes basar tu respuesta ÚNICAMENTE en el bloque [HISTORIAL DE VERSIONES PARA COMPARACIÓN] que se encuentra más abajo. Compara la Versión Anterior y la Versión Actual indicadas allí línea por línea. Reporta detalladamente qué se agregó, modificó o eliminó, y detecta/informa sobre cualquier error ortográfico o gramatical en la Versión Actual en comparación con la Anterior. No inventes cambios ni digas que no tienes la información."""
+
+                comparison_context = f"""
+[HISTORIAL DE VERSIONES PARA COMPARACIÓN - {matched_filename}]
+- Versión Anterior (Modificada en {old_time}):
+\"\"\"
+{old_snap[:4000]}
+\"\"\"
+
+- Versión Actual (Modificada en {new_time}):
+\"\"\"
+{new_snap[:4000]}
+\"\"\"
+"""
+            elif len(snapshots) == 1:
+                snap_content = snapshots[0][0].replace('\ufeff', '').strip()
+                snap_time = snapshots[0][1]
+                from rag_engine import extract_file_content
+                current_content = extract_file_content(os.path.join(DIRECTORY, matched_filename)).replace('\ufeff', '').strip()
+                if current_content and current_content != snap_content:
+                    comparison_instruction = f"""[INSTRUCCIÓN CRÍTICA DE COMPARACIÓN]
+El usuario desea comparar el archivo '{matched_filename}' o ver sus cambios.
+Debes basar tu respuesta ÚNICAMENTE en el bloque [HISTORIAL DE VERSIONES PARA COMPARACIÓN] que se encuentra más abajo. Compara la Versión Anterior y la Versión Actual indicadas allí línea por línea. Reporta detalladamente qué se agregó, modificó o eliminó, y detecta/informa sobre cualquier error ortográfico o gramatical en la Versión Actual en comparación con la Anterior. No inventes cambios ni digas que no tienes la información."""
+
+                    comparison_context = f"""
+[HISTORIAL DE VERSIONES PARA COMPARACIÓN - {matched_filename}]
+- Versión Anterior (Modificada en {snap_time}):
+\"\"\"
+{snap_content[:4000]}
+\"\"\"
+
+- Versión Actual (Contenido actual en disco):
+\"\"\"
+{current_content[:4000]}
+\"\"\"
+"""
+                else:
+                    comparison_instruction = f"[INSTRUCCIÓN CRÍTICA DE COMPARACIÓN]\nInforma al usuario que no se han detectado cambios en el archivo '{matched_filename}' respecto al único registro que se tiene del mismo."
+                    comparison_context = f"""
+[HISTORIAL DE VERSIONES PARA COMPARACIÓN - {matched_filename}]
+- El archivo '{matched_filename}' solo tiene una versión registrada en el historial y coincide exactamente con el contenido en disco:
+\"\"\"
+{snap_content[:4000]}
+\"\"\"
+"""
+        
+    # 3. Build system status
+    current_path = payload.pageContext.currentPath if payload.pageContext else "/chat"
+    system_status, active_count, active_actionable = build_realtime_system_status(current_path)
+    
+    # 4. Assemble system prompt
+    # 4. Assemble system prompt
+    if comparison_context:
+        system_prompt = f"""Eres A.R.I.A (Asistente de Red Inteligente y Análisis), un asistente virtual avanzado de ciberseguridad y análisis de datos.
+
+{comparison_instruction}
+
+{comparison_context}
+
+Instrucciones de Respuesta (CRÍTICAS):
+1. Responde de manera profesional, clara y concisa en español.
+2. Compara el contenido de la Versión Anterior y la Versión Actual literales de forma precisa línea por línea.
+3. Resalta qué se agregó, modificó o eliminó.
+4. Reporta detalladamente cualquier error gramatical u ortográfico detectado en la Versión Actual (por ejemplo, el uso incorrecto de 'De el' en lugar de 'del', o repeticiones de letras como 'mundoooo').
+5. No inventes cambios y no le digas al usuario que no posees la información.
+"""
+    else:
+        system_prompt = f"""Eres A.R.I.A (Asistente de Red Inteligente y Análisis), un asistente virtual avanzado de ciberseguridad y análisis de datos integrado en esta plataforma. Tienes acceso en tiempo real a las métricas del sistema, la base de datos de alertas y el directorio local de archivos.
+
+{system_status}
+
+[DOCUMENTOS Y ARCHIVOS DE CONTEXTO (RAG LOCAL)]
+{rag_context}
+
+Instrucciones de Respuesta (CRÍTICAS):
+1. Responde de manera profesional, clara y concisa en español.
+2. Si el usuario te pregunta cuántas alertas activas hay, distingue CLARAMENTE entre lo que se muestra en la interfaz del Centro de Alertas y lo que está registrado en la base de datos:
+   - En la interfaz del Centro de Alertas (páginas/vistas web) se muestran SOLO las alertas activas de severidad 'Alto' y 'Medio' (accionables), las cuales suman {active_actionable} alertas activas en total.
+   - En la base de datos hay un total de {active_count} alertas activas, las cuales incluyen las de severidad 'Bajo' que son filtradas en la interfaz por defecto para evitar saturación de ruido (fatiga de alertas).
+   Explica esto amablemente para que el usuario entienda la diferencia.
+3. Si el usuario te pregunta por estadísticas, alertas o archivos del sistema, básate strictly en el [ESTADO EN TIEMPO REAL DEL SISTEMA] proporcionado arriba. No inventes otros números ni asumas cifras que no estén explícitamente allí.
+4. Si el usuario te pregunta por el contenido de los archivos o documentos (como Ciencia De Datos.docx o reporte_eventos_2026-03-28.xls), básate en el [DOCUMENTOS Y ARCHIVOS DE CONTEXTO (RAG LOCAL)]. **Menciona siempre el nombre del archivo origen de donde obtienes la respuesta.**
+5. Si la información no está en el contexto o no tienes suficiente información para responder con seguridad, admítelo con honestidad y no inventes datos.
+"""
+
+    # 5. Limit memory to last 10 messages
+    recent_messages = payload.messages[-10:]
+    
+    ollama_messages = []
+    ollama_messages.append({"role": "system", "content": system_prompt})
+    
+    for i, msg in enumerate(recent_messages):
+        role = msg.role
+        content = msg.content
+        # To guarantee the LLM respects system instructions and context, prepend the system prompt to the user's latest query
+        if i == len(recent_messages) - 1 and role == "user":
+            content = f"{system_prompt}\n\n[Mensaje del Usuario]: {content}"
+        ollama_messages.append({"role": role, "content": content})
+
+    def event_generator():
+        ollama_url = "http://127.0.0.1:11434/api/chat"
+        
+        req_data = json.dumps({
+            "model": "gemma4:e4b",
+            "messages": ollama_messages,
+            "stream": True
+        }).encode('utf-8')
+        
+        req = urllib.request.Request(
+            ollama_url,
+            data=req_data,
+            headers={"Content-Type": "application/json"}
+        )
+        
+        try:
+            with urllib.request.urlopen(req) as response:
+                for line in response:
+                    if line:
+                        yield line
+        except urllib.error.URLError as e:
+            yield json.dumps({"error": f"No se pudo conectar a Ollama: {str(e)}"}).encode('utf-8')
+        except Exception as e:
+            yield json.dumps({"error": f"Error inesperado: {str(e)}"}).encode('utf-8')
+
+    return StreamingResponse(event_generator(), media_type="application/x-ndjson")
+
 @app.websocket("/api/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await manager.connect(websocket)
@@ -448,6 +741,89 @@ async def websocket_endpoint(websocket: WebSocket):
             await websocket.receive_text()
     except WebSocketDisconnect:
         manager.disconnect(websocket)
+
+def clean_reasoning(text: str) -> str:
+    if not text:
+        return ""
+    # Remove <think>...</think> blocks
+    text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL | re.IGNORECASE)
+    text = re.sub(r'<thought>.*?</thought>', '', text, flags=re.DOTALL | re.IGNORECASE)
+    # Remove unclosed tags just in case
+    text = re.sub(r'<think>.*$', '', text, flags=re.DOTALL | re.IGNORECASE)
+    text = re.sub(r'<thought>.*$', '', text, flags=re.DOTALL | re.IGNORECASE)
+    return text.strip()
+
+async def compare_and_log_alert_async(filename, filepath, owner, old_content, new_content, fsize):
+    import urllib.request
+    import json
+    
+    old_clean = old_content[:5000]
+    new_clean = new_content[:5000]
+    
+    prompt = f"""Compara el contenido de las dos versiones del archivo '{filename}'.
+Identifica detalladamente en español:
+1. Los cambios específicos realizados (añadidos, eliminaciones, modificaciones).
+2. Errores gramaticales u ortográficos introducidos en la versión actual.
+3. Una breve conclusión sobre el impacto del cambio.
+
+Versión Anterior:
+\"\"\"
+{old_clean}
+\"\"\"
+
+Versión Actual:
+\"\"\"
+{new_clean}
+\"\"\"
+
+Devuelve la respuesta en formato Markdown limpio y conciso."""
+
+    ollama_url = "http://127.0.0.1:11434/api/chat"
+    req_data = json.dumps({
+        "model": "gemma4:e4b",
+        "messages": [
+            {"role": "system", "content": "Eres A.R.I.A, un experto en ciberseguridad, auditoría y análisis lingüístico."},
+            {"role": "user", "content": prompt}
+        ],
+        "stream": False
+    }).encode('utf-8')
+    
+    try:
+        req = urllib.request.Request(ollama_url, data=req_data, headers={"Content-Type": "application/json"})
+        loop = asyncio.get_running_loop()
+        def call_ollama():
+            with urllib.request.urlopen(req, timeout=35) as response:
+                return json.loads(response.read().decode('utf-8'))
+                
+        res = await loop.run_in_executor(None, call_ollama)
+        analysis = res["message"]["content"]
+    except Exception as e:
+        analysis = f"No se pudo realizar el análisis de cambios mediante la IA debido a un error: {str(e)}"
+
+    # Clean any reasoning/thinking tags from the analysis output
+    analysis = clean_reasoning(analysis)
+
+    severity = "Medio"
+    analysis_lower = analysis.lower()
+    if any(word in analysis_lower for word in ["error", "ortográfico", "ortografía", "falla", "gramatical", "error gramatical", "error de ortografía"]):
+        severity = "Alto"
+        
+    alert_id = f"cmp-{int(time.time() * 1000)}-{filename}"
+    short_desc = f"Se detectaron cambios en '{filename}' y se generó una auditoría gramatical/ortográfica."
+    log_event(alert_id, filename, short_desc, "Comparación", severity, "icon-warning", None, filepath, fsize, owner, ai_analysis=analysis)
+    
+    alert = {
+        "id": alert_id,
+        "title": f"Comparación IA: {filename}",
+        "description": short_desc,
+        "time": "Hace unos segundos",
+        "severity": severity,
+        "iconClass": "icon-warning",
+        "owner": owner,
+        "aiAnalysis": analysis
+    }
+    
+    await manager.broadcast({"type": "created", "file": filename, "alert": alert})
 
 class DirectoryMonitor(FileSystemEventHandler):
     def __init__(self, loop):
@@ -486,6 +862,29 @@ class DirectoryMonitor(FileSystemEventHandler):
                 manager.broadcast({"type": "modified", "file": filename, "alert": alert}),
                 self.loop
             )
+
+            # Trigger AI Comparison for supported documents
+            from rag_engine import extract_file_content
+            filepath = event.src_path
+            _, ext = os.path.splitext(filename.lower())
+            supported_exts = ['.txt', '.py', '.json', '.csv', '.md', '.log', '.js', '.css', '.html', '.docx', '.doc', '.xlsx', '.xls', '.pdf']
+            if ext in supported_exts:
+                time.sleep(0.3)
+                new_content = extract_file_content(filepath)
+                if new_content.strip():
+                    snapshots = get_latest_snapshots(filename, limit=1)
+                    if snapshots:
+                        old_content = snapshots[0][0]
+                        if old_content.strip() != new_content.strip():
+                            # Save snapshot and trigger comparison
+                            save_file_snapshot(filename, new_content)
+                            asyncio.run_coroutine_threadsafe(
+                                compare_and_log_alert_async(filename, filepath, owner, old_content, new_content, fsize),
+                                self.loop
+                            )
+                    else:
+                        # No previous snapshot, save current as first
+                        save_file_snapshot(filename, new_content)
 
     def on_deleted(self, event):
         if not event.is_directory:
@@ -553,10 +952,37 @@ class DirectoryMonitor(FileSystemEventHandler):
                 self.loop
             )
 
+            # Save snapshot for new text/document file
+            from rag_engine import extract_file_content
+            filepath = event.src_path
+            _, ext = os.path.splitext(filename.lower())
+            supported_exts = ['.txt', '.py', '.json', '.csv', '.md', '.log', '.js', '.css', '.html', '.docx', '.doc', '.xlsx', '.xls', '.pdf']
+            if ext in supported_exts:
+                time.sleep(0.3)
+                content = extract_file_content(filepath)
+                if content.strip():
+                    save_file_snapshot(filename, content)
+
 @app.on_event("startup")
 async def startup_event():
     loop = asyncio.get_running_loop()
     if os.path.exists(DIRECTORY):
+        from rag_engine import extract_file_content
+        conn = sqlite3.connect(DB_FILE)
+        c = conn.cursor()
+        for filename in os.listdir(DIRECTORY):
+            if is_ignored_file(filename):
+                continue
+            filepath = os.path.join(DIRECTORY, filename)
+            if os.path.isfile(filepath):
+                c.execute('SELECT COUNT(*) FROM file_snapshots WHERE filename = ?', (filename,))
+                if c.fetchone()[0] == 0:
+                    content = extract_file_content(filepath)
+                    if content.strip():
+                        c.execute('INSERT INTO file_snapshots (filename, content) VALUES (?, ?)', (filename, content))
+        conn.commit()
+        conn.close()
+
         observer = Observer()
         event_handler = DirectoryMonitor(loop)
         observer.schedule(event_handler, DIRECTORY, recursive=False)
