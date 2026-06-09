@@ -1,14 +1,14 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
 :root {
-  --bg-main: #0B1120;
-  --bg-surface: #111827;
-  --bg-card: #141E33;
-  --bg-card-hover: #1E293B;
+  --bg-main: #000000;
+  --bg-surface: #0A0A0A;
+  --bg-card: #141414;
+  --bg-card-hover: #1F1F1F;
   
-  --text-primary: #F8FAFC;
-  --text-secondary: #94A3B8;
-  --text-muted: #64748B;
+  --text-primary: #FFFFFF;
+  --text-secondary: #9CA3AF;
+  --text-muted: #6B7280;
   
   --accent-primary: #3B82F6;
   --accent-primary-dim: rgba(59, 130, 246, 0.15);
@@ -22,33 +22,33 @@
   --badge-med-bg: rgba(245, 158, 11, 0.15);
   --badge-med-text: #FCD34D;
   
-  --border-color: rgba(255, 255, 255, 0.05);
+  --border-color: rgba(255, 255, 255, 0.08);
   --radius-sm: 6px;
   --radius-md: 10px;
   --radius-lg: 16px;
 }
 
 [data-theme='light'] {
-  --bg-main: #F8FAFC;
+  --bg-main: #F4F5F7;
   --bg-surface: #FFFFFF;
   --bg-card: #FFFFFF;
-  --bg-card-hover: #F1F5F9;
+  --bg-card-hover: #E2E8F0;
   
   --text-primary: #0F172A;
   --text-secondary: #475569;
   --text-muted: #94A3B8;
   
-  --accent-primary: #2563EB;
-  --accent-primary-dim: rgba(37, 99, 235, 0.15);
-  --accent-success: #059669;
-  --accent-warning: #D97706;
-  --accent-danger: #DC2626;
+  --accent-primary: #385675;
+  --accent-primary-dim: rgba(56, 86, 117, 0.15);
+  --accent-success: #4A637A;
+  --accent-warning: #9E7400;
+  --accent-danger: #A33C3C;
   --accent-purple: #7C3AED;
   
-  --badge-high-bg: rgba(220, 38, 38, 0.1);
-  --badge-high-text: #DC2626;
-  --badge-med-bg: rgba(217, 119, 6, 0.1);
-  --badge-med-text: #D97706;
+  --badge-high-bg: rgba(163, 60, 60, 0.1);
+  --badge-high-text: #A33C3C;
+  --badge-med-bg: rgba(158, 116, 0, 0.1);
+  --badge-med-text: #9E7400;
   
   --border-color: rgba(15, 23, 42, 0.1);
 }

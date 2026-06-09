@@ -7,9 +7,11 @@ import Sidebar from './components/Sidebar';
 import Dashboard from './pages/Dashboard';
 import Reportes from './pages/Reportes';
 import Archivos from './pages/Archivos';
+import Comparaciones from './pages/Comparaciones';
 import Alertas from './pages/Alertas';
 import Chat from './pages/Chat';
 import { ThemeProvider } from './contexts/ThemeContext';
+import { ChatProvider } from './contexts/ChatContext';
 
 function App() {
   const [toastAlert, setToastAlert] = useState(null);
@@ -56,34 +58,45 @@ function App() {
 
   return (
     <ThemeProvider>
-      <Router>
-      <div className="app-container">
-        {toastAlert && (
-          <div className={`toast-notification fade-in toast-severity-${toastAlert.severity.toLowerCase()}`}>
-            <div className="toast-icon">
-               {toastAlert.iconClass === 'icon-danger' ? <AlertTriangle size={24} color="#EF4444" /> : <Info size={24} color="#3B82F6" />}
+      <ChatProvider>
+        <Router>
+        <div className="app-container">
+          {toastAlert && (
+            <div className={`toast-notification fade-in toast-severity-${toastAlert.severity.toLowerCase()}`}>
+              <div className="toast-icon">
+                 {toastAlert.iconClass === 'icon-danger' ? <AlertTriangle size={24} color="#EF4444" /> : <Info size={24} color="#3B82F6" />}
+              </div>
+              <div className="toast-content">
+                 <h4>{toastAlert.title}</h4>
+                 <p>{toastAlert.description && toastAlert.description.length > 120 ? toastAlert.description.split('\n')[0].substring(0, 120) + '...' : toastAlert.description}</p>
+              </div>
+              <button className="toast-close" onClick={() => setToastAlert(null)}>
+                <X size={16} />
+              </button>
             </div>
-            <div className="toast-content">
-               <h4>{toastAlert.title}</h4>
-               <p>{toastAlert.description && toastAlert.description.length > 120 ? toastAlert.description.split('\n')[0].substring(0, 120) + '...' : toastAlert.description}</p>
-            </div>
-            <button className="toast-close" onClick={() => setToastAlert(null)}>
-              <X size={16} />
-            </button>
+          )}
+          <Sidebar />
+          <div className="main-content">
+            <Routes>
+              {/* Rutas Globales / Generales */}
+              <Route path="/" element={<Dashboard />} />
+              <Route path="/reportes" element={<Reportes />} />
+              <Route path="/archivos" element={<Archivos />} />
+              <Route path="/comparaciones" element={<Comparaciones />} />
+              <Route path="/alertas" element={<Alertas />} />
+              <Route path="/chat" element={<Chat />} />
+              
+              {/* Rutas Específicas de Módulo */}
+              <Route path="/modulo/:module/dashboard" element={<Dashboard />} />
+              <Route path="/modulo/:module/reportes" element={<Reportes />} />
+              <Route path="/modulo/:module/archivos" element={<Archivos />} />
+              <Route path="/modulo/:module/comparaciones" element={<Comparaciones />} />
+              <Route path="/modulo/:module/alertas" element={<Alertas />} />
+            </Routes>
           </div>
-        )}
-        <Sidebar />
-        <div className="main-content">
-          <Routes>
-            <Route path="/" element={<Dashboard />} />
-            <Route path="/reportes" element={<Reportes />} />
-            <Route path="/archivos" element={<Archivos />} />
-            <Route path="/alertas" element={<Alertas />} />
-            <Route path="/chat" element={<Chat />} />
-          </Routes>
         </div>
-      </div>
-    </Router>
+      </Router>
+      </ChatProvider>
     </ThemeProvider>
   );
 }

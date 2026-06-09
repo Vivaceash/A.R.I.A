@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { useParams } from 'react-router-dom';
 import Header from '../components/Header';
 import MetricCard from '../components/MetricCard';
 import AlertsPieChart from '../components/AlertsPieChart';
@@ -12,6 +13,7 @@ function Dashboard() {
   const [data, setData] = useState(null);
   const [allAlerts, setAllAlerts] = useState([]);
   const [timeframe, setTimeframe] = useState('24h');
+  const { module } = useParams();
   const ws = useRef(null);
 
   // Modal State
@@ -21,7 +23,7 @@ function Dashboard() {
 
   const fetchData = useCallback(async () => {
     try {
-      const response = await fetch(`/api/stats?period=${timeframe}`);
+      const response = await fetch(`/api/stats?period=${timeframe}&module=${module || 'general'}`);
       if (response.ok) {
         const result = await response.json();
         setData(result);
@@ -32,7 +34,7 @@ function Dashboard() {
     } catch (e) {
       console.error('Error fetching dashboard data:', e);
     }
-  }, [timeframe]);
+  }, [timeframe, module]);
 
   useEffect(() => {
     fetchData();
@@ -108,7 +110,12 @@ function Dashboard() {
 
   return (
     <>
-      <Header timeframe={timeframe} setTimeframe={setTimeframe} />
+      <Header 
+        title={module ? `Dashboard de ${module.charAt(0).toUpperCase() + module.slice(1)}` : "Dashboard General"} 
+        onTimeframeChange={setTimeframe} 
+        timeframe={timeframe} 
+        setTimeframe={setTimeframe} 
+      />
 
       <div className="dashboard-grid">
         <MetricCard 

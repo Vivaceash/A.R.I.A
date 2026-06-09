@@ -42,8 +42,8 @@ const AlertsLineChart = ({ data }) => {
           >
             <defs>
               <linearGradient id="colorAlertas" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#00F0FF" stopOpacity={0.5}/>
-                <stop offset="95%" stopColor="#00F0FF" stopOpacity={0}/>
+                <stop offset="5%" stopColor="#3B82F6" stopOpacity={0.5}/>
+                <stop offset="95%" stopColor="#3B82F6" stopOpacity={0}/>
               </linearGradient>
             </defs>
             <CartesianGrid strokeDasharray="3 3" stroke="var(--border-color)" vertical={false} />
@@ -73,13 +73,13 @@ const AlertsLineChart = ({ data }) => {
             <Area 
               type="monotone" 
               dataKey="alertas" 
-              stroke="#00F0FF" 
+              stroke="#3B82F6" 
               strokeWidth={2}
               fillOpacity={1}
               fill="url(#colorAlertas)"
               activeDot={{ 
                 r: 8, 
-                fill: '#00F0FF', 
+                fill: '#3B82F6', 
                 stroke: 'var(--bg-card)', 
                 strokeWidth: 2, 
                 cursor: 'pointer',

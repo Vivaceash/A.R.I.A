@@ -55,9 +55,9 @@
 }
 
 .inbox-zero-icon {
-  color: #10B981;
+  color: var(--accent-success);
   margin-bottom: 16px;
-  filter: drop-shadow(0 0 16px rgba(16, 185, 129, 0.4));
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));
 }
 
 .inbox-zero h3 {
@@ -95,11 +95,15 @@
 }
 
 .alerta-card.severity-alto::before {
-  background-color: #EF4444;
+  background-color: var(--accent-danger);
 }
 
 .alerta-card.severity-medio::before {
-  background-color: #FFB020;
+  background-color: var(--accent-warning);
+}
+
+.alerta-card.severity-bajo::before {
+  background-color: var(--accent-primary);
 }
 
 .alerta-card:hover {
@@ -120,13 +124,18 @@
 }
 
 .severity-alto .alerta-card-icon {
-  color: #EF4444;
-  background-color: rgba(239, 68, 68, 0.1);
+  color: var(--accent-danger);
+  background-color: var(--badge-high-bg);
 }
 
 .severity-medio .alerta-card-icon {
-  color: #FFB020;
-  background-color: rgba(255, 176, 32, 0.1);
+  color: var(--accent-warning);
+  background-color: var(--badge-med-bg);
+}
+
+.severity-bajo .alerta-card-icon {
+  color: var(--accent-primary);
+  background-color: var(--accent-primary-dim);
 }
 
 .alerta-card-body {
@@ -180,6 +189,12 @@
   border: 1px solid rgba(255, 176, 32, 0.3);
 }
 
+.badge-bajo {
+  background-color: var(--accent-primary-dim);
+  color: var(--accent-primary);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
 .alerta-card-actions {
   display: flex;
   align-items: center;
@@ -201,9 +216,9 @@
 }
 
 .resolve-btn:hover {
-  background-color: rgba(16, 185, 129, 0.1);
-  border-color: #10B981;
-  color: #10B981;
+  background-color: var(--accent-primary-dim);
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
 }
 
 /* Resolving Animation */
@@ -219,19 +234,19 @@
     opacity: 1;
   }
   30% {
-    background-color: rgba(16, 185, 129, 0.2);
-    border-color: #10B981;
+    background-color: var(--accent-primary-dim);
+    border-color: var(--accent-primary);
     transform: translateX(-10px);
   }
   100% {
-    background-color: rgba(16, 185, 129, 0.4);
+    background-color: var(--accent-primary-dim);
     transform: translateX(100%);
     opacity: 0;
   }
 }
 
 .resolving-green::before {
-  background-color: #10B981 !important;
+  background-color: var(--accent-primary) !important;
 }
 
 /* Resolved Section */
@@ -280,12 +295,12 @@
 }
 
 .resolved-card::before {
-  background-color: #10B981;
+  background-color: var(--accent-success);
 }
 
 .resolved-card .alerta-card-icon {
-  color: #10B981;
-  background-color: rgba(16, 185, 129, 0.1);
+  color: var(--accent-success);
+  background-color: rgba(255, 255, 255, 0.05);
 }
 
 .resolved-by-info {

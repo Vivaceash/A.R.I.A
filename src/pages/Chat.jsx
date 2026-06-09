@@ -1,23 +1,23 @@
 import { useState, useEffect, useRef } from 'react';
 import { Send, Trash2, Bot, User, Sparkles, Loader2 } from 'lucide-react';
 import Header from '../components/Header';
+import { useChat } from '../contexts/ChatContext';
 import './Chat.css';
 
 function Chat() {
-  const [messages, setMessages] = useState(() => {
-    const saved = localStorage.getItem('aria_chat_history');
-    return saved ? JSON.parse(saved) : [
-      { role: 'assistant', content: '¡Hola! Soy A.R.I.A, tu asistente de inteligencia artificial local. ¿En qué puedo ayudarte hoy?' }
-    ];
-  });
+  const {
+    messages,
+    isGenerating,
+    status,
+    statusMessage,
+    sendMessage,
+    clearHistory
+  } = useChat();
+
   const [inputValue, setInputValue] = useState('');
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [status, setStatus] = useState('connected'); // 'connected', 'error'
-  const [statusMessage, setStatusMessage] = useState('');
   const messagesEndRef = useRef(null);
 
   useEffect(() => {
-    localStorage.setItem('aria_chat_history', JSON.stringify(messages));
     scrollToBottom();
   }, [messages]);
 
@@ -25,119 +25,12 @@ function Chat() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
-  const handleClearHistory = () => {
-    if (window.confirm('¿Estás seguro de que deseas vaciar el historial de conversación?')) {
-      setMessages([
-        { role: 'assistant', content: 'Historial borrado. ¡Hola! Soy A.R.I.A, ¿en qué te puedo asistir ahora?' }
-      ]);
-    }
-  };
-
-  const handleSendMessage = async (e) => {
+  const handleSendMessage = (e) => {
     e.preventDefault();
     if (!inputValue.trim() || isGenerating) return;
-
-    const userMessage = { role: 'user', content: inputValue.trim() };
-    setMessages(prev => [...prev, userMessage]);
+    
+    sendMessage(inputValue.trim(), window.location.pathname);
     setInputValue('');
-    setIsGenerating(true);
-    setStatus('connected');
-    setStatusMessage('Consultando base de datos y RAG local...');
-
-    try {
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          messages: [...messages, userMessage],
-          pageContext: {
-            currentPath: window.location.pathname
-          }
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error('No se pudo conectar con el servidor.');
-      }
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder('utf-8');
-      let done = false;
-      let buffer = "";
-      let assistantResponse = "";
-
-      // Add placeholder for assistant response
-      setMessages(prev => [...prev, { role: 'assistant', content: '' }]);
-
-      while (!done) {
-        const { value, done: streamDone } = await reader.read();
-        done = streamDone;
-        if (value) {
-          setStatusMessage('Redactando respuesta con Gemma 4...');
-          buffer += decoder.decode(value, { stream: !done });
-          const lines = buffer.split('\n');
-          buffer = lines.pop() || "";
-
-          for (const line of lines) {
-            if (!line.trim()) continue;
-            try {
-              const parsed = JSON.parse(line);
-              if (parsed.error) {
-                assistantResponse += `\n[Error: ${parsed.error}]`;
-                setStatus('error');
-              } else if (parsed.message && parsed.message.content) {
-                assistantResponse += parsed.message.content;
-              }
-
-              setMessages(prev => {
-                const updated = [...prev];
-                if (updated.length > 0) {
-                  updated[updated.length - 1] = { role: 'assistant', content: assistantResponse };
-                }
-                return updated;
-              });
-            } catch (err) {
-              console.error("Error al parsear línea de streaming:", err);
-            }
-          }
-        }
-      }
-
-      // Check leftover buffer content
-      if (buffer.trim()) {
-        try {
-          const parsed = JSON.parse(buffer);
-          if (parsed.error) {
-            assistantResponse += `\n[Error: ${parsed.error}]`;
-            setStatus('error');
-          } else if (parsed.message && parsed.message.content) {
-            assistantResponse += parsed.message.content;
-          }
-          setMessages(prev => {
-            const updated = [...prev];
-            if (updated.length > 0) {
-              updated[updated.length - 1] = { role: 'assistant', content: assistantResponse };
-            }
-            return updated;
-          });
-        } catch (e) {
-          // ignore
-        }
-      }
-
-    } catch (error) {
-      console.error('Error enviando mensaje:', error);
-      setStatus('error');
-      setMessages(prev => [
-        ...prev,
-        { role: 'assistant', content: 'Lo siento, ha ocurrido un error al conectar con el servidor local de Ollama. Por favor, asegúrate de que el servicio de Ollama y el modelo gemma4:e4b estén activos.' }
-      ]);
-    } finally {
-      setIsGenerating(false);
-      setStatusMessage('');
-    }
   };
 
   const formatMessageContent = (text) => {
@@ -196,7 +89,7 @@ function Chat() {
             <span className="pulse-dot"></span>
             {status === 'connected' ? 'Gemma 4 (Local)' : 'Error de Conexión'}
           </div>
-          <button className="clear-btn" onClick={handleClearHistory} title="Vaciar Historial">
+          <button className="clear-btn" onClick={clearHistory} title="Vaciar Historial">
             <Trash2 size={16} />
             <span>Limpiar</span>
           </button>

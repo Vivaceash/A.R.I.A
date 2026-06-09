@@ -120,3 +120,47 @@
     display: block;
   }
 }
+
+.nav-section-title {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 10px 16px 4px 16px;
+  margin-top: 8px;
+}
+
+.module-submenu {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-left: 28px;
+  margin-top: 4px;
+  margin-bottom: 8px;
+  border-left: 1px solid var(--border-color);
+  padding-left: 8px;
+}
+
+.nav-subitem {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  color: var(--text-secondary);
+  text-decoration: none;
+  font-weight: 500;
+  font-size: 13px;
+  border-radius: var(--radius-sm);
+  transition: all 0.2s ease;
+}
+
+.nav-subitem:hover {
+  background-color: var(--bg-card-hover);
+  color: var(--text-primary);
+}
+
+.nav-subitem.active {
+  color: var(--accent-primary);
+  background-color: var(--accent-primary-dim);
+  font-weight: 600;
+}

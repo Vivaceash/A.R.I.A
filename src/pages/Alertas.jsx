@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react';
+import { useParams } from 'react-router-dom';
 import Header from '../components/Header';
 import { AlertTriangle, Info, CheckCircle, Search, ChevronDown, ChevronUp, Sparkles } from 'lucide-react';
 import AiAnalysisModal from '../components/AiAnalysisModal';
 import './Alertas.css';
 
 function Alertas() {
+  const { module } = useParams();
   const [activeAlerts, setActiveAlerts] = useState([]);
   const [resolvedAlerts, setResolvedAlerts] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -22,7 +24,7 @@ function Alertas() {
   const fetchAlerts = async () => {
     try {
       // Re-use the existing endpoint but parse out unresolved alerts
-      const response = await fetch('/api/reports');
+      const response = await fetch(`/api/reports?module=${module || 'general'}`);
       if (!response.ok) throw new Error('Error al conectar con la API');
       const data = await response.json();
       
@@ -73,7 +75,7 @@ function Alertas() {
       if (ws) ws.close();
       if (reconnectTimeout) clearTimeout(reconnectTimeout);
     };
-  }, []);
+  }, [module]);
 
   const resolveAlert = async (id) => {
     setResolvingId(id);
@@ -108,7 +110,7 @@ function Alertas() {
 
   return (
     <>
-      <Header title="Centro de Alertas" showTimeframe={false} />
+      <Header title={module ? `Alertas de ${module.charAt(0).toUpperCase() + module.slice(1)}` : "Centro de Alertas Global"} showTimeframe={false} />
       
       <div className="alertas-page-container">
         <div className="alertas-header">

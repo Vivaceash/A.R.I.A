@@ -1,8 +1,9 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
-import { FileText, FileSpreadsheet, Image as ImageIcon, File, FileCode, FolderArchive, Terminal, X, Download, FolderOpen, Search, ArrowUp, ArrowDown, Grid, Folder } from 'lucide-react';
+import { FileText, FileSpreadsheet, Image as ImageIcon, File, FileCode, FolderArchive, Terminal, X, Download, FolderOpen, Search, ArrowUp, ArrowDown, Grid, Folder, Sparkles } from 'lucide-react';
 import Header from '../components/Header';
-import './Archivos.css';
+import AiAnalysisModal from '../components/AiAnalysisModal';
+import './Comparaciones.css';
 
 const getFileIcon = (filename) => {
   const parts = filename.split('.');
@@ -85,24 +86,25 @@ const getFileColor = (filename) => {
 };
 
 const formatSize = (bytes) => {
-  if (bytes === 0) return '0 B';
+  if (!bytes || bytes === 0) return '0 B';
   const k = 1024;
   const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 };
 
-function Archivos() {
+function Comparaciones() {
+  const { module } = useParams();
   const [files, setFiles] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [selectedFile, setSelectedFile] = useState(null);
+  const [selectedAlertForAnalysis, setSelectedAlertForAnalysis] = useState(null);
+  const [isAnalysisModalOpen, setIsAnalysisModalOpen] = useState(false);
   const [isGrouped, setIsGrouped] = useState(false);
-  const { module } = useParams();
 
   useEffect(() => {
     const fetchFiles = async () => {
       try {
-        const response = await fetch(`/api/files?module=${module || 'general'}`);
+        const response = await fetch(`/api/comparisons?module=${module || 'general'}`);
         if (!response.ok) throw new Error('Error al obtener archivos');
         const data = await response.json();
         setFiles(data);
@@ -116,7 +118,7 @@ function Archivos() {
   }, [module]);
 
   const [searchTerm, setSearchTerm] = useState('');
-  const [sortBy, setSortBy] = useState('mtime');
+  const [sortBy, setSortBy] = useState('timestamp');
   const [sortOrder, setSortOrder] = useState('desc');
   const [selectedExtensions, setSelectedExtensions] = useState([]);
 
@@ -140,7 +142,7 @@ function Archivos() {
   }, [files, selectedExtensions]);
 
   const processedFiles = useMemo(() => {
-    let filtered = files.filter(f => f.name.toLowerCase().includes(searchTerm.toLowerCase()) || f.owner.toLowerCase().includes(searchTerm.toLowerCase()));
+    let filtered = files.filter(f => f.name.toLowerCase().includes(searchTerm.toLowerCase()) || (f.owner && f.owner.toLowerCase().includes(searchTerm.toLowerCase())));
     
     if (sortBy === 'type' && selectedExtensions.length > 0) {
       filtered = filtered.filter(f => {
@@ -156,11 +158,11 @@ function Archivos() {
           valA = a.name.toLowerCase();
           valB = b.name.toLowerCase();
         } else if (sortBy === 'size') {
-          valA = a.size;
-          valB = b.size;
-        } else if (sortBy === 'mtime') {
-          valA = new Date(a.mtime).getTime();
-          valB = new Date(b.mtime).getTime();
+          valA = a.size || 0;
+          valB = b.size || 0;
+        } else if (sortBy === 'timestamp') {
+          valA = new Date(a.timestamp).getTime();
+          valB = new Date(b.timestamp).getTime();
         } else if (sortBy === 'type') {
           const extA = a.name.split('.').pop().toLowerCase();
           const extB = b.name.split('.').pop().toLowerCase();
@@ -184,29 +186,14 @@ function Archivos() {
     );
   };
 
-  const handleDownload = (filename) => {
-    // Create an invisible anchor element to trigger the download
-    const link = document.createElement('a');
-    link.href = `/api/download/${filename}`;
-    link.setAttribute('download', filename);
-    document.body.appendChild(link);
-    link.click();
-    link.parentNode.removeChild(link);
-  };
-
-  const handleOpenFolder = async () => {
-    try {
-      await fetch('/api/open-folder', {
-        method: 'POST'
-      });
-    } catch (error) {
-      console.error("Error opening folder:", error);
-    }
+  const handleViewAnalysis = (file) => {
+    setSelectedAlertForAnalysis(file);
+    setIsAnalysisModalOpen(true);
   };
 
   return (
     <>
-      <Header title={module ? `Archivos de ${module.charAt(0).toUpperCase() + module.slice(1)}` : "Explorador de Archivos Global"} showTimeframe={false} />
+      <Header title={module ? `Comparaciones de ${module.charAt(0).toUpperCase() + module.slice(1)}` : "Comparaciones Globales"} showTimeframe={false} />
       
       <div className="archivos-container">
         <div className="archivos-controls">
@@ -245,7 +232,7 @@ function Archivos() {
               value={sortBy} 
               onChange={(e) => setSortBy(e.target.value)}
             >
-              <option value="mtime">Fecha</option>
+              <option value="timestamp">Fecha</option>
               <option value="name">Nombre</option>
               <option value="type">Tipo de archivo</option>
               <option value="size">Peso</option>
@@ -276,9 +263,9 @@ function Archivos() {
         )}
 
         {loading ? (
-          <div className="loading-state">Cargando archivos...</div>
+          <div className="loading-state">Cargando comparaciones...</div>
         ) : processedFiles.length === 0 ? (
-          <div className="empty-state">No se encontraron archivos que coincidan con la búsqueda.</div>
+          <div className="empty-state">No se encontraron archivos con comparaciones recientes.</div>
         ) : isGrouped ? (
           // Grouped View
           Object.entries(
@@ -301,7 +288,7 @@ function Archivos() {
                   <div 
                     key={idx} 
                     className="file-card" 
-                    onClick={() => setSelectedFile(file)}
+                    onClick={() => handleViewAnalysis(file)}
                     style={{ '--file-color': getFileColor(file.name) }}
                   >
                     <div className="file-card-icon-wrapper">
@@ -314,7 +301,10 @@ function Archivos() {
                         <span className="file-size" title="Tamaño">{formatSize(file.size)}</span>
                       </div>
                       <div className="file-date" title="Última modificación">
-                        {new Date(file.mtime).toLocaleString()}
+                        {new Date(file.timestamp).toLocaleString()}
+                      </div>
+                      <div className="comparison-badge" style={{ marginTop: '8px', fontSize: '11px', color: 'var(--accent-primary)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <Sparkles size={12} /> Análisis de cambios disponible
                       </div>
                     </div>
                   </div>
@@ -329,7 +319,7 @@ function Archivos() {
               <div 
                 key={idx} 
                 className="file-card" 
-                onClick={() => setSelectedFile(file)}
+                onClick={() => handleViewAnalysis(file)}
                 style={{ '--file-color': getFileColor(file.name) }}
               >
                 <div className="file-card-icon-wrapper">
@@ -342,7 +332,10 @@ function Archivos() {
                     <span className="file-size" title="Tamaño">{formatSize(file.size)}</span>
                   </div>
                   <div className="file-date" title="Última modificación">
-                    {new Date(file.mtime).toLocaleString()}
+                    {new Date(file.timestamp).toLocaleString()}
+                  </div>
+                  <div className="comparison-badge" style={{ marginTop: '8px', fontSize: '11px', color: 'var(--accent-primary)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <Sparkles size={12} /> Análisis de cambios disponible
                   </div>
                 </div>
               </div>
@@ -351,42 +344,13 @@ function Archivos() {
         )}
       </div>
 
-      {selectedFile && (
-        <div className="file-action-modal-overlay" onClick={() => setSelectedFile(null)}>
-          <div className="file-action-modal" onClick={e => e.stopPropagation()}>
-            <div className="file-action-header">
-              <div className="file-action-title">
-                {getFileIcon(selectedFile.name)}
-                <h4>{selectedFile.name}</h4>
-              </div>
-              <button className="close-modal-btn" onClick={() => setSelectedFile(null)}>
-                <X size={24} />
-              </button>
-            </div>
-            
-            <div className="file-action-body">
-              <div className="file-action-details">
-                <p><strong>Propietario:</strong> {selectedFile.owner}</p>
-                <p><strong>Tamaño:</strong> {formatSize(selectedFile.size)}</p>
-                <p><strong>Modificado:</strong> {new Date(selectedFile.mtime).toLocaleString()}</p>
-              </div>
-              
-              <div className="file-action-buttons">
-                <button className="btn-action btn-folder" onClick={handleOpenFolder}>
-                  <FolderOpen size={20} />
-                  <span>Buscar en el fólder</span>
-                </button>
-                <button className="btn-action btn-download" onClick={() => handleDownload(selectedFile.name)}>
-                  <Download size={20} />
-                  <span>Descargar</span>
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <AiAnalysisModal 
+        isOpen={isAnalysisModalOpen}
+        onClose={() => setIsAnalysisModalOpen(false)}
+        alert={selectedAlertForAnalysis}
+      />
     </>
   );
 }
 
-export default Archivos;
+export default Comparaciones;

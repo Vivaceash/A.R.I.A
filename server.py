@@ -22,8 +22,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-DIRECTORY = "/home/astra/concilio"
-DB_FILE = "/home/astra/Antigravity/aria.db"
+DIRECTORY = "/home/astra/Projects/concilio"
+DB_FILE = "/home/astra/Projects/ARIA/aria.db"
 
 # Initialize SQLite Database
 def init_db():
@@ -128,7 +128,7 @@ def log_event(alert_id, filename, description, event_type, severity, icon_class,
     conn.commit()
     conn.close()
 
-def get_alert_history(limit=50, hours=None):
+def get_alert_history(limit=50, hours=None, module=None):
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
     
@@ -155,6 +155,15 @@ def get_alert_history(limit=50, hours=None):
             
         if cutoff_time and dt < cutoff_time:
             continue
+            
+        filepath = r[10]
+        if module and module.lower() != "general":
+            if not filepath:
+                continue
+            # Ensure the file belongs to the module directory
+            module_dir = os.path.join(DIRECTORY, module)
+            if not filepath.startswith(module_dir):
+                continue
             
         alerts.append({
             "id": r[0],
@@ -240,7 +249,7 @@ def is_ignored_file(filename):
         filename.endswith('.tmp')
     )
 
-def get_files_data(timeframe_hours=None):
+def get_files_data(timeframe_hours=None, module=None):
     if not os.path.exists(DIRECTORY):
         return []
     
@@ -251,50 +260,59 @@ def get_files_data(timeframe_hours=None):
         cutoff_timestamp = 0
         
     files_data = []
-    for filename in os.listdir(DIRECTORY):
-        if is_ignored_file(filename):
-            continue
-            
-        filepath = os.path.join(DIRECTORY, filename)
-        if os.path.isfile(filepath):
-            stat = os.stat(filepath)
-            if stat.st_mtime >= cutoff_timestamp:
-                try:
-                    owner = pwd.getpwuid(stat.st_uid).pw_name
-                except KeyError:
-                    owner = str(stat.st_uid)
-                files_data.append({
-                    "name": filename,
-                    "owner": owner,
-                    "mtime": datetime.fromtimestamp(stat.st_mtime).isoformat(),
-                    "size": stat.st_size,
-                    "timestamp": stat.st_mtime
-                })
+    
+    target_dir = DIRECTORY
+    if module and module.lower() != "general":
+        target_dir = os.path.join(DIRECTORY, module)
+        if not os.path.exists(target_dir):
+            return []
+
+    for root, dirs, files in os.walk(target_dir):
+        for filename in files:
+            if is_ignored_file(filename):
+                continue
+                
+            filepath = os.path.join(root, filename)
+            if os.path.isfile(filepath):
+                stat = os.stat(filepath)
+                if stat.st_mtime >= cutoff_timestamp:
+                    try:
+                        owner = pwd.getpwuid(stat.st_uid).pw_name
+                    except KeyError:
+                        owner = str(stat.st_uid)
+                    files_data.append({
+                        "name": filename,
+                        "owner": owner,
+                        "mtime": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                        "size": stat.st_size,
+                        "timestamp": stat.st_mtime,
+                        "path": filepath
+                    })
     files_data.sort(key=lambda x: x["timestamp"], reverse=True)
     return files_data
 
 def seed_initial_history():
-    files = get_files_data(24 * 30) # last 30 days
+    files = get_files_data(24 * 365 * 10) # last 10 years
     for f in files:
         alert_id = f"mod-{f['name']}-{f['timestamp']}"
         description = f"Se modificó {f['name']} por {f['owner']}"
-        log_event(alert_id, f['name'], description, "Modificación", "Bajo", "icon-info", f['mtime'])
+        log_event(alert_id, f['name'], description, "Modificación", "Bajo", "icon-info", f['mtime'], f['path'], f['size'], f['owner'])
         
         if f['size'] > 10 * 1024 * 1024:
             alert_id_high = f"alert-high-{f['name']}-{f['timestamp']}"
-            log_event(alert_id_high, f['name'], "Archivo de gran tamaño modificado", "Posible manipulación", "Alto", "icon-danger", f['mtime'])
+            log_event(alert_id_high, f['name'], "Archivo de gran tamaño modificado", "Posible manipulación", "Alto", "icon-danger", f['mtime'], f['path'], f['size'], f['owner'])
         elif f['name'].endswith('.doc') or f['name'].endswith('.docx') or f['name'].endswith('.xls') or f['name'].endswith('.xlsx'):
             alert_id_med = f"alert-med-{f['name']}-{f['timestamp']}"
-            log_event(alert_id_med, f['name'], "Revisión manual requerida", "Inconsistencia", "Medio", "icon-warning", f['mtime'])
+            log_event(alert_id_med, f['name'], "Revisión manual requerida", "Inconsistencia", "Medio", "icon-warning", f['mtime'], f['path'], f['size'], f['owner'])
 
 seed_initial_history()
 
 @app.get("/api/stats")
-def get_stats(period: str = "24h"):
+def get_stats(period: str = "24h", module: str = None):
     hours = {"24h": 24, "7d": 24*7, "30d": 24*30}.get(period, 24)
     
     # Fetch all DB alerts for the timeframe
-    all_db_alerts = get_alert_history(limit=1000, hours=hours)
+    all_db_alerts = get_alert_history(limit=1000, hours=hours, module=module)
     
     # Total analyzed is the number of file modifications, creations, deletions, and comparisons logged
     total_analyzed = len(all_db_alerts)
@@ -320,7 +338,10 @@ def get_stats(period: str = "24h"):
         if sev in pie_chart_data:
             pie_chart_data[sev] += 1
             
-        filename = alert.get("title", alert.get("filename", ""))
+    # Calculate extension pie chart using ALL files in the module/general
+    all_files_for_ext = get_files_data(None, module=module)
+    for f in all_files_for_ext:
+        filename = f.get("name", "")
         if "." in filename:
             ext = "." + filename.split(".")[-1].lower()
         else:
@@ -333,9 +354,9 @@ def get_stats(period: str = "24h"):
             
     pie_data_array = []
     color_map = {
-        'Alto': '#FF3366',   # Rojo neón para Alto
-        'Medio': '#FFB020',  # Amarillo/Naranja para Medio
-        'Bajo': '#00F0FF'    # Azul cyan para Bajo
+        'Alto': '#EF4444',   # Vivid Red
+        'Medio': '#F59E0B',  # Vivid Amber
+        'Bajo': '#3B82F6'    # Vivid Blue
     }
     
     for name, value in pie_chart_data.items():
@@ -348,21 +369,23 @@ def get_stats(period: str = "24h"):
     # Format extension data
     extension_data_array = []
     ext_color_map = {
-        '.docx': '#02D5F5', # Bright Blue
-        '.doc': '#02D5F5',
-        '.xlsx': '#217346', # Excel Green
-        '.xls': '#217346',
-        '.csv': '#217346',
-        '.pdf': '#B30B00',  # PDF Red
-        '.txt': '#6B7280',  # Gray
-        '.py': '#3776AB',   # Python Blue
-        '.js': '#F7DF1E',   # JS Yellow
-        '.html': '#E34F26', # HTML Orange
-        '.css': '#1572B6',  # CSS Blue
+        '.docx': '#3B82F6', # Vivid Blue
+        '.doc': '#3B82F6',
+        '.xlsx': '#10B981', # Vivid Green
+        '.xls': '#10B981',
+        '.csv': '#10B981',
+        '.pdf': '#EF4444',  # Vivid Red
+        '.txt': '#6B7280',  # Muted Gray
+        '.py': '#8B5CF6',   # Vivid Purple
+        '.js': '#F59E0B',   # Vivid Amber
+        '.html': '#F59E0B', # HTML Orange
+        '.css': '#3B82F6',  # CSS Blue
         '.jpg': '#EC4899',  # Image Pink
         '.png': '#EC4899',
         '.zip': '#8B5CF6',  # Archive Purple
         '.tar': '#8B5CF6',
+        '.sh': '#14B8A6',   # Teal
+        '.bash': '#14B8A6',
         '.rar': '#8B5CF6',
         'Otros': '#475569'  # Slate Gray
     }
@@ -445,24 +468,84 @@ def get_stats(period: str = "24h"):
     }
 
 @app.get("/api/reports")
-def get_reports():
-    return get_alert_history(limit=100)
+def get_reports(module: str = None):
+    return get_alert_history(limit=100, module=module)
 
 @app.get("/api/files")
-def get_files():
-    return get_files_data(timeframe_hours=None)
+def get_files(module: str = None):
+    return get_files_data(timeframe_hours=None, module=module)
+
+@app.get("/api/comparisons")
+def get_comparisons(module: str = None):
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute('''
+        SELECT id, filename, description, event_type, severity, icon_class, timestamp, resolved, resolved_by, resolved_at, file_path, file_size, owner, ai_analysis 
+        FROM alert_history 
+        WHERE event_type = 'Comparación'
+        ORDER BY timestamp DESC
+    ''')
+    rows = c.fetchall()
+    conn.close()
+    
+    comparisons = []
+    seen_files = set()
+    for r in rows:
+        filepath = r[10]
+        if module and module.lower() != "general":
+            if not filepath:
+                continue
+            module_dir = os.path.join(DIRECTORY, module)
+            if not filepath.startswith(module_dir):
+                continue
+                
+        filename = r[1]
+        if filename not in seen_files:
+            seen_files.add(filename)
+            comparisons.append({
+                "id": r[0],
+                "name": filename,
+                "title": filename,
+                "description": r[2],
+                "type": r[3],
+                "severity": r[4],
+                "iconClass": r[5],
+                "time": calculate_time_ago(r[6]),
+                "timestamp": r[6],
+                "resolved": bool(r[7]),
+                "resolvedBy": r[8],
+                "resolvedAt": r[9],
+                "filePath": r[10],
+                "size": r[11] or 0,
+                "owner": r[12] or "Desconocido",
+                "aiAnalysis": r[13] or "Sin análisis detallado."
+            })
+    return comparisons
 
 @app.get("/api/download/{filename}")
 def download_file(filename: str):
+    # We should search for the file globally since we only have filename
     # Security check to prevent path traversal
     if ".." in filename or "/" in filename:
         raise HTTPException(status_code=400, detail="Invalid filename")
     
-    filepath = os.path.join(DIRECTORY, filename)
-    if not os.path.exists(filepath):
+    filepath = None
+    for root, dirs, files in os.walk(DIRECTORY):
+        if filename in files:
+            filepath = os.path.join(root, filename)
+            break
+            
+    if not filepath or not os.path.exists(filepath):
         raise HTTPException(status_code=404, detail="File not found")
         
     return FileResponse(path=filepath, filename=filename)
+
+@app.get("/api/modules")
+def get_modules():
+    if not os.path.exists(DIRECTORY):
+        return []
+    modules = [d for d in os.listdir(DIRECTORY) if os.path.isdir(os.path.join(DIRECTORY, d)) and not d.startswith('.')]
+    return modules
 
 @app.post("/api/open-folder")
 def open_folder():
@@ -916,6 +999,48 @@ class DirectoryMonitor(FileSystemEventHandler):
                 manager.broadcast({"type": "deleted", "file": filename, "alert": alert}),
                 self.loop
             )
+    def on_moved(self, event):
+        if not event.is_directory:
+            # Handle source (deleted)
+            src_filename = os.path.basename(event.src_path)
+            if not is_ignored_file(src_filename):
+                owner = "Sistema"
+                alert_id = f"del-{int(time.time() * 1000)}-{src_filename}"
+                description = f"Archivo movido/eliminado: {src_filename}"
+                fsize = get_last_known_size(src_filename)
+                log_event(alert_id, src_filename, description, "Eliminado", "Alto", "icon-danger", None, event.src_path, fsize, owner)
+                
+                asyncio.run_coroutine_threadsafe(
+                    manager.broadcast({"type": "deleted", "file": src_filename, "alert": {
+                        "id": alert_id, "title": src_filename, "description": description, 
+                        "time": "Hace unos segundos", "severity": "Alto", "iconClass": "icon-danger", "owner": owner
+                    }}),
+                    self.loop
+                )
+
+            # Handle destination (created) if it's within our watched directory
+            # We can just call on_created for the destination if we want, but watchdog might also trigger on_created. 
+            # Actually watchdog on Linux triggers on_moved for renames within the watched dir, or moves to trash.
+            if hasattr(event, 'dest_path') and event.dest_path.startswith(DIRECTORY):
+                dest_filename = os.path.basename(event.dest_path)
+                if not is_ignored_file(dest_filename):
+                    owner = "Sistema"
+                    alert_id = f"add-{int(time.time() * 1000)}-{dest_filename}"
+                    description = f"Archivo movido/creado: {dest_filename}"
+                    try:
+                        stat = os.stat(event.dest_path)
+                        fsize = stat.st_size
+                    except FileNotFoundError:
+                        fsize = 0
+                    log_event(alert_id, dest_filename, description, "Creación", "Medio", "icon-warning", None, event.dest_path, fsize, owner)
+                    
+                    asyncio.run_coroutine_threadsafe(
+                        manager.broadcast({"type": "created", "file": dest_filename, "alert": {
+                            "id": alert_id, "title": dest_filename, "description": description, 
+                            "time": "Hace unos segundos", "severity": "Medio", "iconClass": "icon-warning", "owner": owner
+                        }}),
+                        self.loop
+                    )
 
     def on_created(self, event):
         if not event.is_directory:
@@ -985,7 +1110,7 @@ async def startup_event():
 
         observer = Observer()
         event_handler = DirectoryMonitor(loop)
-        observer.schedule(event_handler, DIRECTORY, recursive=False)
+        observer.schedule(event_handler, DIRECTORY, recursive=True)
         observer.start()
 
 if __name__ == "__main__":

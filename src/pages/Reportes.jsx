@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { useParams } from 'react-router-dom';
 import { FileWarning, AlertTriangle, AlertCircle, FileText, Search, ArrowUpDown, ArrowUp, ArrowDown, Sparkles } from 'lucide-react';
 import Header from '../components/Header';
 import AiAnalysisModal from '../components/AiAnalysisModal';
 import './Reportes.css';
 
 function Reportes() {
+  const { module } = useParams();
   const [reports, setReports] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -21,7 +23,7 @@ function Reportes() {
 
   const fetchReports = async () => {
     try {
-      const response = await fetch('/api/reports');
+      const response = await fetch(`/api/reports?module=${module || 'general'}`);
       const data = await response.json();
       setReports(data);
     } catch (err) {
@@ -66,7 +68,7 @@ function Reportes() {
       if (ws) ws.close();
       if (reconnectTimeout) clearTimeout(reconnectTimeout);
     };
-  }, []);
+  }, [module]);
 
   const handleSort = (key) => {
     let direction = 'asc';
@@ -146,7 +148,7 @@ function Reportes() {
 
   return (
     <>
-      <Header title="Histórico de Reportes" showTimeframe={false} />
+      <Header title={module ? `Histórico de ${module.charAt(0).toUpperCase() + module.slice(1)}` : "Histórico de Reportes Global"} showTimeframe={false} />
 
       <div className="reports-controls" style={{ marginTop: '24px', display: 'flex', gap: '16px', justifyContent: 'space-between', flexWrap: 'wrap' }}>
         <div className="search-box">
