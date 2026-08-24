@@ -62,9 +62,10 @@ export const ChatProvider = ({ children }) => {
       let done = false;
       let buffer = "";
       let assistantResponse = "";
+      let ragSources = [];
 
       // Add placeholder for assistant response
-      setMessages(prev => [...prev, { role: 'assistant', content: '' }]);
+      setMessages(prev => [...prev, { role: 'assistant', content: '', ragSources: [] }]);
 
       while (!done) {
         const { value, done: streamDone } = await reader.read();
@@ -82,6 +83,9 @@ export const ChatProvider = ({ children }) => {
               if (parsed.error) {
                 assistantResponse += `\n[Error: ${parsed.error}]`;
                 setStatus('error');
+              } else if (parsed.rag_sources) {
+                // Capture RAG source metadata from the final stream line
+                ragSources = parsed.rag_sources;
               } else if (parsed.message && parsed.message.content) {
                 assistantResponse += parsed.message.content;
               }
@@ -89,7 +93,7 @@ export const ChatProvider = ({ children }) => {
               setMessages(prev => {
                 const updated = [...prev];
                 if (updated.length > 0) {
-                  updated[updated.length - 1] = { role: 'assistant', content: assistantResponse };
+                  updated[updated.length - 1] = { role: 'assistant', content: assistantResponse, ragSources };
                 }
                 return updated;
               });
@@ -107,13 +111,15 @@ export const ChatProvider = ({ children }) => {
           if (parsed.error) {
             assistantResponse += `\n[Error: ${parsed.error}]`;
             setStatus('error');
+          } else if (parsed.rag_sources) {
+            ragSources = parsed.rag_sources;
           } else if (parsed.message && parsed.message.content) {
             assistantResponse += parsed.message.content;
           }
           setMessages(prev => {
             const updated = [...prev];
             if (updated.length > 0) {
-              updated[updated.length - 1] = { role: 'assistant', content: assistantResponse };
+              updated[updated.length - 1] = { role: 'assistant', content: assistantResponse, ragSources };
             }
             return updated;
           });

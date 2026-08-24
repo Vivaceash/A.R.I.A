@@ -1,12 +1,13 @@
 .chat-page-container {
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 40px);
-  max-height: calc(100vh - 40px);
+  height: 100%;
+  max-height: 100%;
   background-color: var(--bg-main);
   color: var(--text-primary);
   box-sizing: border-box;
-  padding: 24px;
+  overflow: hidden;
+  padding: 0;
 }
 
 .chat-sub-header {
@@ -141,10 +142,11 @@
 }
 
 .chat-messages-area {
-  flex-grow: 1;
+  flex: 1 1 0%;
+  min-height: 0;
   overflow-y: auto;
   padding-right: 8px;
-  margin-bottom: 20px;
+  margin-bottom: 16px;
   display: flex;
   flex-direction: column;
   gap: 20px;

@@ -10,6 +10,7 @@ import Archivos from './pages/Archivos';
 import Comparaciones from './pages/Comparaciones';
 import Alertas from './pages/Alertas';
 import Chat from './pages/Chat';
+import Conocimiento from './pages/Conocimiento';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { ChatProvider } from './contexts/ChatContext';
 
@@ -85,6 +86,7 @@ function App() {
               <Route path="/comparaciones" element={<Comparaciones />} />
               <Route path="/alertas" element={<Alertas />} />
               <Route path="/chat" element={<Chat />} />
+              <Route path="/conocimiento" element={<Conocimiento />} />
               
               {/* Rutas Específicas de Módulo */}
               <Route path="/modulo/:module/dashboard" element={<Dashboard />} />

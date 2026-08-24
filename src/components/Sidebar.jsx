@@ -7,6 +7,7 @@ import {
   ArrowLeftRight,
   Bell,
   ClipboardList,
+  Brain,
   Settings,
   Users,
   Menu,
@@ -68,6 +69,10 @@ const Sidebar = () => {
         <NavLink to="/reportes" className={({ isActive }) => isActive && !activeModule ? "nav-item active" : "nav-item"} onClick={() => setIsOpen(false)}>
           <ClipboardList />
           Reportes Globales
+        </NavLink>
+        <NavLink to="/conocimiento" className={({ isActive }) => isActive && !activeModule ? "nav-item active" : "nav-item"} onClick={() => setIsOpen(false)}>
+          <Brain />
+          Base de Conocimiento
         </NavLink>
 
         <div className="nav-divider"></div>

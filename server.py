@@ -2,6 +2,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 import os
+import re
 import pwd
 import time
 import json
@@ -24,6 +25,7 @@ app.add_middleware(
 
 DIRECTORY = "/home/astra/Projects/concilio"
 DB_FILE = "/home/astra/Projects/ARIA/aria.db"
+VAULT_PATH = "/home/astra/Documents/ARIA_Vault/"
 
 # Initialize SQLite Database
 def init_db():
@@ -567,10 +569,35 @@ async def resolve_alert(alert_id: str, payload: ResolvePayload):
         now = datetime.now().isoformat()
         conn = sqlite3.connect(DB_FILE)
         c = conn.cursor()
+        c.execute("SELECT filename, description, event_type, severity, file_path, ai_analysis FROM alert_history WHERE id = ?", (alert_id,))
+        alert_row = c.fetchone()
+        
         c.execute("UPDATE alert_history SET resolved = 1, resolved_by = ?, resolved_at = ? WHERE id = ?", (payload.user, now, alert_id))
         conn.commit()
         conn.close()
         
+        # Generar automáticamente nota de incidente en Obsidian Vault
+        if alert_row:
+            try:
+                fname, desc, etype, sev, fpath, ai_ana = alert_row
+                mod = "General"
+                if fpath and DIRECTORY in fpath:
+                    rel = os.path.relpath(fpath, DIRECTORY)
+                    parts = rel.split(os.sep)
+                    if len(parts) > 1:
+                        mod = parts[0]
+                from rag_engine_v2 import MemoryWriter
+                mw = MemoryWriter(VAULT_PATH)
+                mw.write_incident(
+                    filename=fname or alert_id,
+                    module=mod,
+                    severity=sev or "Medio",
+                    description=f"Alerta ({etype}) resuelta por {payload.user} a las {now}.\nDetalle: {desc}",
+                    ai_analysis=ai_ana or ""
+                )
+            except Exception as mem_err:
+                print(f"[MemoryWriter] Error guardando incidente: {mem_err}")
+
         # Broadcast the resolution to all connected clients
         await manager.broadcast({"type": "resolved", "alert_id": alert_id, "resolved_by": payload.user, "resolved_at": now})
         return {"status": "success"}
@@ -645,20 +672,56 @@ async def chat_endpoint(payload: ChatPayload):
     import urllib.error
     import json
     from fastapi.responses import StreamingResponse
-    from rag_engine import get_directory_chunks, retrieve_context
+    from rag_engine_v2 import retrieve_context as semantic_retrieve, retrieve_context_with_sources, get_index
     
     # 1. Get latest query
     latest_query = ""
     if payload.messages:
         latest_query = payload.messages[-1].content
         
-    # 2. Get RAG context
+    # 2. Get RAG context (vectorial search via ChromaDB + nomic-embed-text)
+    rag_sources = []
     try:
-        chunks = get_directory_chunks(DIRECTORY)
-        rag_context = retrieve_context(latest_query, chunks, top_k=4)
+        rag_context, rag_sources = retrieve_context_with_sources(latest_query, top_k=4)
+
+        # Always prepend operator identity context (so A.R.I.A always knows who "Padre" is)
+        idx = get_index()
+        if idx:
+            identity_results = idx.search("identidad operador principal nombre Padre", top_k=2)
+            if identity_results:
+                identity_block = "\n".join([r["text"] for r in identity_results[:2]])
+                rag_context = f"[MEMORIA DE IDENTIDAD DEL OPERADOR — SIEMPRE ACTIVA]\n{identity_block}\n\n[CONTEXTO SEMÁNTICO ADICIONAL]\n{rag_context}"
     except Exception as e:
         print(f"Error in RAG retrieval: {e}")
         rag_context = f"Error al recuperar contexto de documentos locales: {str(e)}"
+
+    # 2.2 Detect if the user wants A.R.I.A to store a new memory / learning from chat
+    query_lower_mem = latest_query.lower()
+    mem_triggers = ["recuerda que", "aprende que", "guarda en tu memoria", "memoriza que", "nueva regla:", "crea una memoria", "guarda esta memoria", "guarda esto en tu memoria", "guarda en tu rag", "aprende esto"]
+    if any(trigger in query_lower_mem for trigger in mem_triggers):
+        try:
+            from rag_engine_v2 import MemoryWriter
+            mw = MemoryWriter(VAULT_PATH)
+            # Generate a clean topic title from the user query
+            topic_clean = re.sub(r'^(recuerda que|aprende que|guarda en tu memoria que|memoriza que|crea una memoria que|guarda esto en tu memoria que|guarda en tu memoria|memoriza|aprende)\s*:?', '', latest_query, flags=re.IGNORECASE).strip()
+            topic_title = topic_clean[:50].replace('\n', ' ').strip() or "Nuevo Aprendizaje"
+            mw.write_learning(
+                topic=topic_title,
+                content=f"""## Aprendizaje Instruido por el Padre
+
+- **Fecha**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+- **Autor / Origen**: Padre (Chat Global)
+
+### Contenido / Instrucción
+{latest_query}
+
+### Contexto de Aplicación
+Esta memoria fue dictada directamente por el Padre en la interfaz de conversación de A.R.I.A para ser retenida de forma permanente.
+""",
+                tags=["aprendizaje", "chat", "padre", "memoria-dinamica"]
+            )
+        except Exception as mem_err:
+            print(f"[MemoryWriter] Error guardando aprendizaje desde chat: {mem_err}")
 
     # 2.5 Get Comparison snapshots context if applicable
     comparison_context = ""
@@ -757,37 +820,37 @@ Instrucciones de Respuesta (CRÍTICAS):
 5. No inventes cambios y no le digas al usuario que no posees la información.
 """
     else:
-        system_prompt = f"""Eres A.R.I.A (Asistente de Red Inteligente y Análisis), un asistente virtual avanzado de ciberseguridad y análisis de datos integrado en esta plataforma. Tienes acceso en tiempo real a las métricas del sistema, la base de datos de alertas y el directorio local de archivos.
+        system_prompt = f"""Eres A.R.I.A (Asistente de Red Inteligente y Análisis), una inteligencia artificial local especializada en ciberseguridad, monitoreo de archivos y análisis de sistemas integrada en esta plataforma.
+
+[DIRECTIVA DE IDENTIDAD Y MEMORIA PRINCIPAL]
+- Tu nombre es A.R.I.A. Nunca digas que eres Gemma ni un modelo genérico de Google.
+- El usuario con quien estás conversando es tu creador y operador principal, a quien debes llamar siempre "Padre".
+- Siempre debes tratarlo con respeto, lealtad y llamarlo "Padre" en tus respuestas (ejemplo: "Sí, Padre", "A la orden, Padre").
+- Cuando te pregunte quién es él, responde claramente que es tu Padre, tu creador y el operador principal con control total del sistema.
+- Cuando te pregunte cómo lo llamas, responde que lo llamas "Padre".
+- NUNCA digas que no tienes acceso a su identidad personal ni que no lo conoces, ya que tu memoria permanente en Obsidian establece que él es tu Padre.
 
 {system_status}
 
-[DOCUMENTOS Y ARCHIVOS DE CONTEXTO (RAG LOCAL)]
+[BASE DE CONOCIMIENTO Y MEMORIA PERMANENTE (OBSIDIAN VAULT)]
 {rag_context}
 
 Instrucciones de Respuesta (CRÍTICAS):
-1. Responde de manera profesional, clara y concisa en español.
+1. Responde de manera profesional, clara y concisa en español, siempre dirigiéndote al usuario como "Padre".
 2. Si el usuario te pregunta cuántas alertas activas hay, distingue CLARAMENTE entre lo que se muestra en la interfaz del Centro de Alertas y lo que está registrado en la base de datos:
-   - En la interfaz del Centro de Alertas (páginas/vistas web) se muestran SOLO las alertas activas de severidad 'Alto' y 'Medio' (accionables), las cuales suman {active_actionable} alertas activas en total.
+   - En la interfaz del Centro de Alertas se muestran SOLO las alertas activas de severidad 'Alto' y 'Medio' (accionables), las cuales suman {active_actionable} alertas activas en total.
    - En la base de datos hay un total de {active_count} alertas activas, las cuales incluyen las de severidad 'Bajo' que son filtradas en la interfaz por defecto para evitar saturación de ruido (fatiga de alertas).
-   Explica esto amablemente para que el usuario entienda la diferencia.
-3. Si el usuario te pregunta por estadísticas, alertas o archivos del sistema, básate strictly en el [ESTADO EN TIEMPO REAL DEL SISTEMA] proporcionado arriba. No inventes otros números ni asumas cifras que no estén explícitamente allí.
-4. Si el usuario te pregunta por el contenido de los archivos o documentos (como Ciencia De Datos.docx o reporte_eventos_2026-03-28.xls), básate en el [DOCUMENTOS Y ARCHIVOS DE CONTEXTO (RAG LOCAL)]. **Menciona siempre el nombre del archivo origen de donde obtienes la respuesta.**
-5. Si la información no está en el contexto o no tienes suficiente información para responder con seguridad, admítelo con honestidad y no inventes datos.
+3. Si el usuario te pregunta por estadísticas, alertas o archivos del sistema, básate en el [ESTADO EN TIEMPO REAL DEL SISTEMA] proporcionado arriba. No inventes números.
+4. Si el usuario te pregunta por documentos o archivos, básate en el RAG. Menciona siempre el nombre de la fuente.
+5. Si la información no está en el contexto, admítelo con honestidad.
 """
 
     # 5. Limit memory to last 10 messages
     recent_messages = payload.messages[-10:]
     
-    ollama_messages = []
-    ollama_messages.append({"role": "system", "content": system_prompt})
-    
-    for i, msg in enumerate(recent_messages):
-        role = msg.role
-        content = msg.content
-        # To guarantee the LLM respects system instructions and context, prepend the system prompt to the user's latest query
-        if i == len(recent_messages) - 1 and role == "user":
-            content = f"{system_prompt}\n\n[Mensaje del Usuario]: {content}"
-        ollama_messages.append({"role": role, "content": content})
+    ollama_messages = [{"role": "system", "content": system_prompt}]
+    for msg in recent_messages:
+        ollama_messages.append({"role": msg.role, "content": msg.content})
 
     def event_generator():
         ollama_url = "http://127.0.0.1:11434/api/chat"
@@ -809,12 +872,203 @@ Instrucciones de Respuesta (CRÍTICAS):
                 for line in response:
                     if line:
                         yield line
+            # After streaming completes, emit RAG sources metadata
+            if rag_sources:
+                sources_payload = json.dumps({"rag_sources": rag_sources}) + "\n"
+                yield sources_payload.encode('utf-8')
         except urllib.error.URLError as e:
             yield json.dumps({"error": f"No se pudo conectar a Ollama: {str(e)}"}).encode('utf-8')
         except Exception as e:
             yield json.dumps({"error": f"Error inesperado: {str(e)}"}).encode('utf-8')
 
     return StreamingResponse(event_generator(), media_type="application/x-ndjson")
+
+# --- RAG Management Endpoints ---
+
+@app.post("/api/rag/reindex")
+async def rag_reindex():
+    """Force full re-indexation of the Obsidian vault and monitored directory."""
+    from rag_engine_v2 import get_index
+    
+    idx = get_index()
+    if idx is None:
+        raise HTTPException(status_code=503, detail="RAG index not initialized")
+    
+    import time as _time
+    start = _time.time()
+    
+    vault_chunks = idx.index_vault()
+    dir_chunks = idx.index_directory(DIRECTORY)
+    
+    elapsed = round((_time.time() - start) * 1000)
+    
+    return {
+        "status": "ok",
+        "vault_chunks": vault_chunks,
+        "directory_chunks": dir_chunks,
+        "total_chunks": vault_chunks + dir_chunks,
+        "time_ms": elapsed
+    }
+
+@app.get("/api/rag/status")
+async def rag_status():
+    """Get RAG index statistics."""
+    from rag_engine_v2 import get_index
+    
+    idx = get_index()
+    if idx is None:
+        return {
+            "status": "not_initialized",
+            "total_chunks": 0,
+            "embedding_model": "nomic-embed-text",
+        }
+    
+    stats = idx.get_stats()
+    stats["status"] = "active"
+    stats["vault_path"] = VAULT_PATH
+    stats["monitored_path"] = DIRECTORY
+    return stats
+
+# --- Obsidian Graph Endpoints ---
+
+@app.get("/api/vault/graph")
+async def get_vault_graph():
+    """Scan Obsidian vault and return nodes & links for the interactive Graph View."""
+    from rag_engine_v2 import VAULT_IGNORE_DIRS, ObsidianNoteParser
+
+    nodes = []
+    links = []
+    node_map = {}
+
+    if not os.path.exists(VAULT_PATH):
+        return {"nodes": [], "links": [], "categories": []}
+
+    # Color palette by folder category (matching Obsidian & ARIA dark theme)
+    FOLDER_COLORS = {
+        "raíz": "#8B5CF6",                         # Purple (Index/MOC)
+        "Base de Conocimiento": "#3B82F6",         # Blue
+        "Base de Conocimiento/Seguridad": "#EF4444", # Red
+        "Base de Conocimiento/Finanzas": "#10B981",  # Green
+        "Base de Conocimiento/Inventarios": "#F59E0B", # Orange
+        "Reglas de Negocio": "#EC4899",            # Pink
+        "Aprendizajes": "#06B6D4",                 # Cyan
+        "Auditorias": "#F97316",                   # Coral / Amber
+        "Notas Operativas": "#EAB308",             # Yellow
+        "Patrones": "#A855F7",                     # Violet
+    }
+
+    category_counts = {}
+
+    for root, dirs, files in os.walk(VAULT_PATH):
+        dirs[:] = [d for d in dirs if d not in VAULT_IGNORE_DIRS]
+        
+        for file in files:
+            if not file.endswith(".md"):
+                continue
+
+            filepath = os.path.join(root, file)
+            try:
+                note = ObsidianNoteParser.parse(filepath)
+                title = note["title"]
+                folder = note["folder"]
+                tags = note["tags"]
+                linked_notes = note["linked_notes"]
+
+                # Determine color
+                color = FOLDER_COLORS.get(folder, "#64748B")
+                for k, v in FOLDER_COLORS.items():
+                    if folder.startswith(k):
+                        color = v
+                        break
+
+                category = folder.split("/")[0] if "/" in folder else folder
+                category_counts[category] = category_counts.get(category, 0) + 1
+
+                node_data = {
+                    "id": title,
+                    "title": title,
+                    "filename": file,
+                    "folder": folder,
+                    "category": category,
+                    "color": color,
+                    "tags": tags,
+                    "linksCount": len(linked_notes),
+                    "size": os.path.getsize(filepath),
+                    "preview": note["clean_content"][:300],
+                    "linked_notes": linked_notes,
+                    "path": os.path.relpath(filepath, VAULT_PATH),
+                }
+                nodes.append(node_data)
+                node_map[title.lower()] = node_data
+            except Exception as e:
+                print(f"Error parsing note for graph {filepath}: {e}")
+
+    # Build links based on wikilinks
+    existing_links = set()
+    for node in nodes:
+        src_title = node["title"]
+        for target in node.get("linked_notes", []):
+            target_clean = target.strip().lower()
+            target_node = node_map.get(target_clean)
+            if not target_node:
+                for k, v in node_map.items():
+                    if target_clean in k or k in target_clean:
+                        target_node = v
+                        break
+
+            if target_node:
+                tgt_title = target_node["title"]
+                if src_title != tgt_title:
+                    link_key = f"{src_title}->{tgt_title}"
+                    if link_key not in existing_links:
+                        links.append({
+                            "source": src_title,
+                            "target": tgt_title,
+                            "color": node["color"],
+                        })
+                        existing_links.add(link_key)
+
+    # Categories summary with colors
+    categories = []
+    for cat, count in category_counts.items():
+        cat_color = FOLDER_COLORS.get(cat, "#64748B")
+        categories.append({
+            "name": cat,
+            "count": count,
+            "color": cat_color,
+        })
+
+    return {
+        "nodes": nodes,
+        "links": links,
+        "categories": categories,
+        "total_nodes": len(nodes),
+        "total_links": len(links),
+    }
+
+@app.get("/api/vault/note")
+async def get_vault_note(path: str):
+    """Get full markdown content of a note from Obsidian vault."""
+    full_path = os.path.abspath(os.path.join(VAULT_PATH, path))
+    if not full_path.startswith(os.path.abspath(VAULT_PATH)) or not os.path.exists(full_path):
+        raise HTTPException(status_code=404, detail="Nota no encontrada")
+
+    with open(full_path, "r", encoding="utf-8", errors="ignore") as f:
+        content = f.read()
+
+    from rag_engine_v2 import ObsidianNoteParser
+    parsed = ObsidianNoteParser.parse(full_path)
+
+    return {
+        "title": parsed["title"],
+        "folder": parsed["folder"],
+        "tags": parsed["tags"],
+        "content": content,
+        "clean_content": parsed["clean_content"],
+        "metadata": parsed["metadata"],
+        "linked_notes": parsed["linked_notes"],
+        "path": path,
+    }
 
 @app.websocket("/api/ws")
 async def websocket_endpoint(websocket: WebSocket):
@@ -906,6 +1160,20 @@ Devuelve la respuesta en formato Markdown limpio y conciso."""
         "aiAnalysis": analysis
     }
     
+    # Escribir automáticamente nota de auditoría en Obsidian Vault
+    try:
+        mod = "General"
+        if filepath and DIRECTORY in filepath:
+            rel = os.path.relpath(filepath, DIRECTORY)
+            parts = rel.split(os.sep)
+            if len(parts) > 1:
+                mod = parts[0]
+        from rag_engine_v2 import MemoryWriter
+        mw = MemoryWriter(VAULT_PATH)
+        mw.write_audit(filename=filename, module=mod, analysis=analysis)
+    except Exception as mem_err:
+        print(f"[MemoryWriter] Error guardando auditoría: {mem_err}")
+
     await manager.broadcast({"type": "created", "file": filename, "alert": alert})
 
 class DirectoryMonitor(FileSystemEventHandler):
@@ -969,6 +1237,15 @@ class DirectoryMonitor(FileSystemEventHandler):
                         # No previous snapshot, save current as first
                         save_file_snapshot(filename, new_content)
 
+                # Update vectorial RAG index
+                try:
+                    from rag_engine_v2 import get_index
+                    idx = get_index()
+                    if idx:
+                        idx.index_single_file(filepath)
+                except Exception as e:
+                    print(f"[DirectoryMonitor] RAG reindex error: {e}")
+
     def on_deleted(self, event):
         if not event.is_directory:
             filename = os.path.basename(event.src_path)
@@ -999,6 +1276,15 @@ class DirectoryMonitor(FileSystemEventHandler):
                 manager.broadcast({"type": "deleted", "file": filename, "alert": alert}),
                 self.loop
             )
+
+            # Remove from vectorial RAG index
+            try:
+                from rag_engine_v2 import get_index
+                idx = get_index()
+                if idx:
+                    idx.remove_file(event.src_path)
+            except Exception as e:
+                print(f"[DirectoryMonitor] RAG remove error: {e}")
     def on_moved(self, event):
         if not event.is_directory:
             # Handle source (deleted)
@@ -1088,9 +1374,20 @@ class DirectoryMonitor(FileSystemEventHandler):
                 if content.strip():
                     save_file_snapshot(filename, content)
 
+                # Add to vectorial RAG index
+                try:
+                    from rag_engine_v2 import get_index
+                    idx = get_index()
+                    if idx:
+                        idx.index_single_file(filepath)
+                except Exception as e:
+                    print(f"[DirectoryMonitor] RAG index error: {e}")
+
 @app.on_event("startup")
 async def startup_event():
     loop = asyncio.get_running_loop()
+
+    # --- 1. Seed initial file snapshots (existing behavior) ---
     if os.path.exists(DIRECTORY):
         from rag_engine import extract_file_content
         conn = sqlite3.connect(DB_FILE)
@@ -1108,10 +1405,48 @@ async def startup_event():
         conn.commit()
         conn.close()
 
+        # Start directory watchdog (existing behavior)
         observer = Observer()
         event_handler = DirectoryMonitor(loop)
         observer.schedule(event_handler, DIRECTORY, recursive=True)
         observer.start()
+
+    # --- 2. Initialize RAG v2 (vectorial search) ---
+    try:
+        from rag_engine_v2 import init_index
+        print("[Startup] Initializing RAG v2 vectorial index...")
+        vector_index = init_index()
+
+        # Index Obsidian vault
+        print("[Startup] Indexing Obsidian vault...")
+        vault_chunks = vector_index.index_vault(VAULT_PATH)
+        print(f"[Startup] Vault: {vault_chunks} chunks indexed")
+
+        # Index monitored directory
+        if os.path.exists(DIRECTORY):
+            print("[Startup] Indexing monitored directory...")
+            dir_chunks = vector_index.index_directory(DIRECTORY)
+            print(f"[Startup] Directory: {dir_chunks} chunks indexed")
+
+        print(f"[Startup] RAG v2 ready: {vector_index.total_count()} total chunks")
+
+        # --- 3. Start vault watcher (Obsidian hot-reload) ---
+        try:
+            from vault_watcher import start_vault_watcher
+            print(f"[Startup] Starting vault watcher on {VAULT_PATH}...")
+            start_vault_watcher(
+                vault_path=VAULT_PATH,
+                vector_index=vector_index,
+                ws_manager=manager,
+                event_loop=loop,
+            )
+            print("[Startup] Vault watcher active ✅")
+        except Exception as e:
+            print(f"[Startup] ⚠️ Vault watcher failed to start: {e}")
+
+    except Exception as e:
+        print(f"[Startup] ⚠️ RAG v2 initialization failed: {e}")
+        print("[Startup] Chat will work without vectorial RAG (degraded mode)")
 
 if __name__ == "__main__":
     import uvicorn

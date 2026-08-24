@@ -15,14 +15,16 @@ function Chat() {
   } = useChat();
 
   const [inputValue, setInputValue] = useState('');
-  const messagesEndRef = useRef(null);
+  const messagesAreaRef = useRef(null);
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages]);
+  }, [messages, isGenerating]);
 
   const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (messagesAreaRef.current) {
+      messagesAreaRef.current.scrollTop = messagesAreaRef.current.scrollHeight;
+    }
   };
 
   const handleSendMessage = (e) => {
@@ -96,7 +98,7 @@ function Chat() {
         </div>
       </div>
 
-      <div className="chat-messages-area">
+      <div className="chat-messages-area" ref={messagesAreaRef}>
         {messages.map((message, index) => (
           <div key={index} className={`chat-message-bubble ${message.role}`}>
             <div className="bubble-avatar">
@@ -127,7 +129,6 @@ function Chat() {
             </div>
           </div>
         )}
-        <div ref={messagesEndRef} />
       </div>
 
       <form className="chat-input-form" onSubmit={handleSendMessage}>
