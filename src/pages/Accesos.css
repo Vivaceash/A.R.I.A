@@ -522,7 +522,7 @@
   animation: fadeIn 0.3s ease;
 }
 
-.modal-content {
+.accesos-container .modal-content {
   background: var(--bg-card);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-lg);
@@ -533,7 +533,7 @@
   animation: slideUp 0.3s ease;
 }
 
-.modal-content h3 {
+.accesos-container .modal-content h3 {
   margin: 0 0 20px 0;
   font-size: 20px;
   color: var(--text-primary);

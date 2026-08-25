@@ -222,7 +222,7 @@
   z-index: 1000;
 }
 
-.modal-content {
+.finanzas-container .modal-content {
   background-color: var(--bg-card);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-lg);
@@ -232,18 +232,18 @@
   box-shadow: 0 20px 35px -5px rgba(0, 0, 0, 0.2);
 }
 
-.modal-content h3 {
+.finanzas-container .modal-content h3 {
   margin-top: 0;
   margin-bottom: 24px;
   color: var(--text-primary);
   font-weight: 600;
 }
 
-.modal-content .form-group {
+.finanzas-container .modal-content .form-group {
   margin-bottom: 16px;
 }
 
-.modal-content select, .modal-content input {
+.finanzas-container .modal-content select, .finanzas-container .modal-content input {
   width: 100%;
   box-sizing: border-box;
   background: var(--bg-input);

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo, useCallback } from 'react';
 
 const AuthContext = createContext();
 
@@ -15,7 +15,7 @@ export function AuthProvider({ children }) {
     setLoading(false);
   }, []);
 
-  const login = async (username, password) => {
+  const login = useCallback(async (username, password) => {
     try {
       const response = await fetch('/api/auth/login', {
         method: 'POST',
@@ -35,15 +35,15 @@ export function AuthProvider({ children }) {
     } catch (e) {
       return { success: false, message: 'Error de conexión con el servidor' };
     }
-  };
+  }, []);
 
-  const logout = () => {
+  const logout = useCallback(() => {
     setUser(null);
     localStorage.removeItem('aria_user');
-  };
+  }, []);
 
   // Helper function to check if the user has access to a specific module based on role and department
-  const hasAccess = (moduleName) => {
+  const hasAccess = useCallback((moduleName) => {
     if (!user) return false;
     if (user.role === 'Administrador') return true; // Admin has full access
 
@@ -61,10 +61,14 @@ export function AuthProvider({ children }) {
     if (moduleName === 'iam') return false; 
     
     return false;
-  };
+  }, [user]);
+
+  const value = useMemo(() => ({
+    user, login, logout, hasAccess, loading
+  }), [user, login, logout, hasAccess, loading]);
 
   return (
-    <AuthContext.Provider value={{ user, login, logout, hasAccess, loading }}>
+    <AuthContext.Provider value={value}>
       {children}
     </AuthContext.Provider>
   );

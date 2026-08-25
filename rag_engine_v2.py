@@ -253,6 +253,7 @@ class VectorIndex:
             name=self.COLLECTION_NAME,
             metadata={"hnsw:space": "cosine"}
         )
+        self._file_hashes: dict[str, str] = {}
         self._stats = {
             "vault_docs": 0,
             "vault_chunks": 0,
@@ -262,6 +263,14 @@ class VectorIndex:
         }
         print(f"[RAG v2] ChromaDB inicializado en {persist_dir}")
         print(f"[RAG v2] Colección '{self.COLLECTION_NAME}': {self.collection.count()} chunks existentes")
+
+    def _get_file_hash(self, filepath: str) -> str:
+        """Calcula el hash SHA-256 del archivo para indexación diferencial."""
+        try:
+            with open(filepath, "rb") as f:
+                return hashlib.sha256(f.read()).hexdigest()
+        except Exception:
+            return ""
 
     def _generate_id(self, source_path: str, chunk_idx: int) -> str:
         """Genera un ID único y determinista para cada chunk."""
@@ -300,7 +309,7 @@ class VectorIndex:
             print(f"[RAG v2] Error eliminando chunks de {source_path}: {e}")
 
     def index_vault(self, vault_path: str = VAULT_PATH) -> int:
-        """Indexa todas las notas .md del vault de Obsidian.
+        """Indexa todas las notas .md del vault de Obsidian de forma diferencial.
 
         Returns:
             Número de chunks indexados.
@@ -318,8 +327,16 @@ class VectorIndex:
             if any(ignore in md_file.parts for ignore in VAULT_IGNORE_DIRS):
                 continue
 
+            filepath_str = str(md_file)
+            file_hash = self._get_file_hash(filepath_str)
+
+            # Optimización diferencial: saltar si el hash no ha cambiado
+            if self._file_hashes.get(filepath_str) == file_hash and self.collection.count() > 0:
+                doc_count += 1
+                continue
+
             try:
-                note = ObsidianNoteParser.parse(str(md_file))
+                note = ObsidianNoteParser.parse(filepath_str)
                 if not note["clean_content"].strip():
                     continue
 
@@ -328,13 +345,17 @@ class VectorIndex:
                 if not chunks:
                     continue
 
+                # Limpiar chunks previos si era una actualización
+                self._remove_by_source(filepath_str)
+
                 # Preparar datos para ChromaDB
                 ids = []
                 documents = []
                 metadatas = []
+                mtime_str = datetime.fromtimestamp(os.path.getmtime(filepath_str)).isoformat() if os.path.exists(filepath_str) else ""
 
                 for idx, chunk in enumerate(chunks):
-                    chunk_id = self._generate_id(str(md_file), idx)
+                    chunk_id = self._generate_id(filepath_str, idx)
 
                     # Prepend: contexto para mejorar la calidad del embedding
                     context_prefix = f"[Nota: {note['title']}]"
@@ -351,13 +372,15 @@ class VectorIndex:
                     documents.append(full_text)
                     metadatas.append({
                         "source": "obsidian",
-                        "source_path": str(md_file),
+                        "source_path": filepath_str,
                         "title": note["title"],
                         "folder": note["folder"],
                         "tags": ", ".join(note["tags"][:10]),
                         "linked_notes": ", ".join(note["linked_notes"][:10]),
                         "headers": chunk["headers"],
                         "chunk_index": idx,
+                        "doc_type": "vault_note",
+                        "last_modified": mtime_str,
                     })
 
                 # Generar embeddings
@@ -371,6 +394,7 @@ class VectorIndex:
                     metadatas=metadatas,
                 )
 
+                self._file_hashes[filepath_str] = file_hash
                 total_chunks += len(chunks)
                 doc_count += 1
 
@@ -384,7 +408,7 @@ class VectorIndex:
         return total_chunks
 
     def index_directory(self, directory_path: str) -> int:
-        """Indexa archivos del directorio monitoreado.
+        """Indexa archivos del directorio monitoreado de forma diferencial.
 
         Returns:
             Número de chunks indexados.
@@ -413,6 +437,11 @@ class VectorIndex:
                 if ext not in MONITORED_EXTENSIONS:
                     continue
 
+                file_hash = self._get_file_hash(filepath)
+                if self._file_hashes.get(filepath) == file_hash and self.collection.count() > 0:
+                    doc_count += 1
+                    continue
+
                 try:
                     content = extract_file_content(filepath)
                     if not content or not content.strip():
@@ -429,9 +458,13 @@ class VectorIndex:
                     if not chunks:
                         continue
 
+                    # Limpiar chunks previos si era una actualización
+                    self._remove_by_source(filepath)
+
                     ids = []
                     documents = []
                     metadatas = []
+                    mtime_str = datetime.fromtimestamp(os.path.getmtime(filepath)).isoformat() if os.path.exists(filepath) else ""
 
                     for idx, chunk in enumerate(chunks):
                         chunk_id = self._generate_id(filepath, idx)
@@ -453,6 +486,8 @@ class VectorIndex:
                             "linked_notes": "",
                             "headers": chunk["headers"],
                             "chunk_index": idx,
+                            "doc_type": "monitored_file",
+                            "last_modified": mtime_str,
                         })
 
                     embeddings = self._embed_texts(documents)
@@ -464,6 +499,7 @@ class VectorIndex:
                         metadatas=metadatas,
                     )
 
+                    self._file_hashes[filepath] = file_hash
                     total_chunks += len(chunks)
                     doc_count += 1
 
@@ -487,6 +523,7 @@ class VectorIndex:
         self._remove_by_source(filepath)
 
         _, ext = os.path.splitext(filepath.lower())
+        mtime_str = datetime.fromtimestamp(os.path.getmtime(filepath)).isoformat() if os.path.exists(filepath) else ""
 
         # Determinar si es del vault o del directorio monitoreado
         if filepath.startswith(VAULT_PATH) and ext in VAULT_EXTENSIONS:
@@ -527,6 +564,8 @@ class VectorIndex:
                         "linked_notes": ", ".join(note["linked_notes"][:10]),
                         "headers": chunk["headers"],
                         "chunk_index": idx,
+                        "doc_type": "vault_note",
+                        "last_modified": mtime_str,
                     })
 
                 embeddings = self._embed_texts(documents)
@@ -534,6 +573,7 @@ class VectorIndex:
                     ids=ids, documents=documents,
                     embeddings=embeddings, metadatas=metadatas,
                 )
+                self._file_hashes[filepath] = self._get_file_hash(filepath)
                 print(f"[RAG v2] Re-indexado (vault): {filepath} → {len(chunks)} chunks")
                 return len(chunks)
 
@@ -574,6 +614,8 @@ class VectorIndex:
                         "linked_notes": "",
                         "headers": chunk["headers"],
                         "chunk_index": idx,
+                        "doc_type": "monitored_file",
+                        "last_modified": mtime_str,
                     })
 
                 embeddings = self._embed_texts(documents)
@@ -581,6 +623,7 @@ class VectorIndex:
                     ids=ids, documents=documents,
                     embeddings=embeddings, metadatas=metadatas,
                 )
+                self._file_hashes[filepath] = self._get_file_hash(filepath)
                 print(f"[RAG v2] Re-indexado (monitoreado): {filepath} → {len(chunks)} chunks")
                 return len(chunks)
 
@@ -590,14 +633,16 @@ class VectorIndex:
 
     def remove_file(self, filepath: str):
         """Elimina todos los chunks de un archivo (cuando se borra)."""
+        self._file_hashes.pop(filepath, None)
         self._remove_by_source(filepath)
 
-    def search(self, query: str, top_k: int = 4) -> list[dict]:
-        """Búsqueda semántica por cosine similarity.
+    def search(self, query: str, top_k: int = 4, min_similarity: float = 0.65) -> list[dict]:
+        """Búsqueda semántica por cosine similarity con filtrado calibrado.
 
         Args:
             query: Texto de búsqueda en lenguaje natural.
             top_k: Número de resultados a retornar.
+            min_similarity: Umbral mínimo de similitud coseno para descartar ruido.
 
         Returns:
             Lista de dicts con: text, source, title, folder, tags, headers, score, source_path
@@ -611,7 +656,7 @@ class VectorIndex:
 
             results = self.collection.query(
                 query_embeddings=[query_embedding],
-                n_results=min(top_k, self.collection.count()),
+                n_results=min(top_k * 2, self.collection.count()),
                 include=["documents", "metadatas", "distances"]
             )
 
@@ -624,6 +669,10 @@ class VectorIndex:
                     # Convertir a score de similitud: 1 = idéntico, 0 = opuesto
                     similarity = 1 - (distance / 2)
 
+                    # Filtrar resultados irrelevantes para evitar alucinaciones
+                    if similarity < min_similarity and len(search_results) > 0:
+                        continue
+
                     search_results.append({
                         "text": doc,
                         "source": metadata.get("source", "desconocido"),
@@ -632,9 +681,14 @@ class VectorIndex:
                         "tags": metadata.get("tags", ""),
                         "headers": metadata.get("headers", ""),
                         "linked_notes": metadata.get("linked_notes", ""),
+                        "doc_type": metadata.get("doc_type", "general"),
+                        "last_modified": metadata.get("last_modified", ""),
                         "score": round(similarity, 4),
                         "source_path": metadata.get("source_path", ""),
                     })
+
+                    if len(search_results) >= top_k:
+                        break
 
             return search_results
 
@@ -775,26 +829,24 @@ def retrieve_context_with_sources(query: str, top_k: int = 4) -> tuple[str, list
     return "\n\n".join(context_parts), sources
 
 
-# === GENERADOR DE MEMORIAS ===
+# === GENERADOR DE MEMORIAS AGÉNTICAS ===
 
 class MemoryWriter:
-    """Escribe memorias automáticas como archivos .md en el vault de Obsidian.
-
-    Cuando A.R.I.A aprende algo, genera un archivo .md real que:
-    1. Aparece visualmente en Obsidian
-    2. Es detectado por vault_watcher
-    3. Se indexa automáticamente en ChromaDB
-    """
+    """Escribe y consolida memorias automáticas como archivos .md en el vault de Obsidian
+    siguiendo la taxonomía agéntica (agentic-memory-systems)."""
 
     def __init__(self, vault_path: str = VAULT_PATH):
         self.vault_path = Path(vault_path)
 
     def _sanitize_filename(self, name: str) -> str:
         """Limpia caracteres inválidos para nombres de archivo."""
-        # Remover caracteres problemáticos
         name = re.sub(r'[<>:"/\\|?*]', '', name)
-        # Limitar longitud
         return name[:100].strip()
+
+    def _generate_memory_id(self) -> str:
+        date_str = datetime.now().strftime("%Y-%m-%d")
+        rand_suffix = hashlib.md5(f"{time.time()}_{os.getpid()}".encode()).hexdigest()[:4].upper()
+        return f"MEM-{date_str}-{rand_suffix}"
 
     def write_memory(
         self,
@@ -803,121 +855,193 @@ class MemoryWriter:
         folder: str,
         tags: list[str],
         metadata: dict | None = None,
-        memory_type: str = "aprendizaje"
+        memory_type: str = "learning",
+        module: str = "general",
+        related_notes: list[str] | None = None,
     ) -> str | None:
-        """Escribe una nota de memoria en el vault.
-
-        Args:
-            title: Título de la nota
-            content: Contenido en markdown
-            folder: Subcarpeta dentro del vault (ej: "Aprendizajes", "Patrones")
-            tags: Lista de tags
-            metadata: Metadata adicional para el frontmatter
-            memory_type: Tipo de memoria (aprendizaje, patron, auditoria, incidente)
-
-        Returns:
-            Ruta del archivo creado, o None si falla.
-        """
+        """Escribe una nota de memoria estructurada en el vault."""
+        date_iso = datetime.now().isoformat()
         date_str = datetime.now().strftime("%Y-%m-%d")
         safe_title = self._sanitize_filename(title)
         filename = f"{date_str} {safe_title}.md"
 
-        # Crear carpeta si no existe
         target_dir = self.vault_path / folder
         target_dir.mkdir(parents=True, exist_ok=True)
-
         filepath = target_dir / filename
 
-        # Construir frontmatter
+        # Formatear wikilinks relacionados
+        wikilinks = [f"[[{r.strip('[] ')}]]" if not r.startswith("[[") else r for r in (related_notes or [])]
+
+        # Construir frontmatter estandarizado según la skill agentic-memory-systems
         fm_data = {
+            "id": (metadata and metadata.get("id")) or self._generate_memory_id(),
+            "type": memory_type,
+            "module": module.lower(),
+            "created_at": date_iso,
             "tags": tags,
-            "fecha": date_str,
-            "generado_por": "aria",
-            "tipo": memory_type,
+            "related_notes": wikilinks,
         }
         if metadata:
-            fm_data.update(metadata)
+            for k, v in metadata.items():
+                if k not in fm_data:
+                    fm_data[k] = v
 
-        # Crear nota con frontmatter
         post = frontmatter.Post(content, **fm_data)
 
         try:
             with open(filepath, 'w', encoding='utf-8') as f:
                 f.write(frontmatter.dumps(post))
-            print(f"[RAG v2] Memoria escrita: {filepath}")
+            print(f"[RAG v2] Memoria agéntica escrita: {filepath}")
             return str(filepath)
         except Exception as e:
             print(f"[RAG v2] Error escribiendo memoria: {e}")
             return None
 
+    def write_learning(self, topic: str, content: str,
+                       tags: list[str] | None = None,
+                       module: str = "general") -> str | None:
+        """Escribe o consolida un aprendizaje en el vault aplicando deduplicación semántica."""
+        idx = get_index()
+        # Verificar deduplicación semántica en ChromaDB
+        if idx and idx.total_count() > 0:
+            try:
+                results = idx.search(f"{topic} {content}", top_k=2, min_similarity=0.85)
+                for r in results:
+                    src_path = r.get("source_path", "")
+                    if src_path and os.path.exists(src_path) and "Aprendizajes" in src_path:
+                        # Consolidar nota existente anexando actualización
+                        try:
+                            post = frontmatter.load(src_path)
+                            now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                            update_block = f"\n\n### Actualización [{now_str}]\n- **Directiva consolidada:** {content}\n"
+                            post.content += update_block
+                            if tags:
+                                current_tags = post.metadata.get("tags", [])
+                                if isinstance(current_tags, list):
+                                    post.metadata["tags"] = list(set(current_tags + tags))
+                            with open(src_path, "w", encoding="utf-8") as f:
+                                f.write(frontmatter.dumps(post))
+                            print(f"[RAG v2] Memoria consolidada en nota existente: {src_path}")
+                            idx.index_single_file(src_path)
+                            return src_path
+                        except Exception as upd_err:
+                            print(f"[RAG v2] Error al actualizar nota existente {src_path}: {upd_err}")
+            except Exception as e:
+                print(f"[RAG v2] Error en comprobación de deduplicación: {e}")
+
+        # Si no existe nota previa similar, generar nueva nota estructurada
+        body = f"""# Aprendizaje: {topic}
+
+## Contexto / Antecedentes
+Instrucción aprendida a través de la interacción directa con el operador en el sistema A.R.I.A.
+
+## Detalle Técnico
+{content}
+
+## Acciones Derivadas / Directivas
+- Retener esta regla para futuras consultas semánticas y toma de decisiones operativas.
+
+## Referencias
+- [[Arquitectura General]]
+- [[Políticas de Seguridad]]
+"""
+        return self.write_memory(
+            title=topic,
+            content=body,
+            folder="Aprendizajes",
+            tags=tags or ["aprendizaje", "memoria-dinamica"],
+            memory_type="learning",
+            module=module,
+            related_notes=["Arquitectura General", "Políticas de Seguridad"]
+        )
+
     def write_incident(self, filename: str, module: str, severity: str,
                        description: str, ai_analysis: str = "") -> str | None:
-        """Escribe una memoria de incidente resuelto."""
-        content = f"""## Detalles del Incidente
-- **Archivo afectado**: {filename}
-- **Módulo**: {module}
-- **Severidad**: {severity}
+        """Escribe una memoria de incidente resuelto con wikilinks a políticas."""
+        body = f"""# Incidente de Seguridad: {filename}
 
-## Descripción
-{description}
+## Contexto / Antecedentes
+Alerta operativa resuelta en el módulo `{module}` con nivel de severidad **{severity}**.
 
-## Análisis de A.R.I.A
-{ai_analysis if ai_analysis else 'Pendiente de análisis.'}
+## Detalle Técnico
+- **Archivo Afectado**: `{filename}`
+- **Módulo**: `{module}`
+- **Severidad**: `{severity}`
+- **Descripción del Evento**: {description}
+
+## Acciones Derivadas / Directivas
+- **Análisis y Resolución A.R.I.A**:
+{ai_analysis if ai_analysis else 'Incidente resuelto y archivado en base operativa.'}
+
+## Referencias
+- [[Políticas de Seguridad]]
+- [[Módulo {module.capitalize()}]]
 """
         return self.write_memory(
             title=f"Incidente - {filename}",
-            content=content,
+            content=body,
             folder="Notas Operativas",
             tags=["incidente", module.lower(), severity.lower()],
-            metadata={"modulo": module, "severidad": severity},
-            memory_type="incidente",
-        )
-
-    def write_learning(self, topic: str, content: str,
-                       tags: list[str] | None = None) -> str | None:
-        """Escribe una memoria de aprendizaje de una conversación."""
-        return self.write_memory(
-            title=f"Aprendizaje - {topic}",
-            content=content,
-            folder="Aprendizajes",
-            tags=tags or ["aprendizaje"],
-            memory_type="aprendizaje",
+            metadata={"modulo": module, "severidad": severity, "archivo": filename},
+            memory_type="incident",
+            module=module,
+            related_notes=["Políticas de Seguridad", f"Módulo {module.capitalize()}"]
         )
 
     def write_pattern(self, pattern_name: str, description: str,
                       module: str = "", occurrences: int = 0) -> str | None:
         """Escribe una memoria de patrón detectado."""
-        content = f"""## Patrón Detectado
-- **Módulo**: {module or 'General'}
-- **Ocurrencias**: {occurrences}
+        body = f"""# Patrón Detectado: {pattern_name}
 
-## Descripción
+## Contexto / Antecedentes
+Detección de comportamiento recurrente en el módulo `{module or 'General'}` con **{occurrences}** ocurrencias.
+
+## Detalle Técnico
 {description}
+
+## Acciones Derivadas / Directivas
+- Monitorizar desviaciones en este vector de actividad.
+
+## Referencias
+- [[Políticas de Seguridad]]
+- [[Arquitectura General]]
 """
         return self.write_memory(
             title=f"Patrón - {pattern_name}",
-            content=content,
+            content=body,
             folder="Patrones",
             tags=["patron", module.lower()] if module else ["patron"],
             metadata={"modulo": module, "ocurrencias": occurrences},
-            memory_type="patron",
+            memory_type="pattern",
+            module=module or "general",
+            related_notes=["Políticas de Seguridad", "Arquitectura General"]
         )
 
     def write_audit(self, filename: str, module: str,
                     analysis: str) -> str | None:
         """Escribe una memoria de auditoría IA."""
-        content = f"""## Archivo Auditado
-- **Archivo**: {filename}
-- **Módulo**: {module}
+        body = f"""# Auditoría de Archivo: {filename}
 
-## Resultado de la Auditoría
+## Contexto / Antecedentes
+Inspección automatizada de integridad y cumplimiento en `{filename}` (`{module}`).
+
+## Detalle Técnico
 {analysis}
+
+## Acciones Derivadas / Directivas
+- Mantener registro de conformidad en la base de conocimiento.
+
+## Referencias
+- [[Políticas de Seguridad]]
+- [[Módulo {module.capitalize()}]]
 """
         return self.write_memory(
             title=f"Auditoría - {filename}",
-            content=content,
+            content=body,
             folder="Auditorias",
             tags=["auditoria", module.lower()],
             metadata={"modulo": module, "archivo": filename},
-            memory_type="auditoria",
+            memory_type="audit",
+            module=module,
+            related_notes=["Políticas de Seguridad", f"Módulo {module.capitalize()}"]
         )

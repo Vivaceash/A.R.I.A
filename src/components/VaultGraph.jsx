@@ -50,11 +50,17 @@ const VaultGraph = () => {
   const draggedNodeRef = useRef(null);
   const lastMousePosRef = useRef({ x: 0, y: 0 });
   const hoveredNodeRef = useRef(null);
+  const isSleepingRef = useRef(false);
+
+  const wakeUp = useCallback(() => {
+    isSleepingRef.current = false;
+  }, []);
 
   // Fetch graph data from backend
   const fetchGraph = useCallback(async () => {
     try {
       setLoading(true);
+      wakeUp();
       const res = await fetch('/api/vault/graph');
       const data = await res.json();
       setGraphData(data);
@@ -88,7 +94,7 @@ const VaultGraph = () => {
       console.error('Error fetching vault graph:', err);
       setLoading(false);
     }
-  }, []);
+  }, [wakeUp]);
 
   useEffect(() => {
     fetchGraph();
@@ -117,7 +123,7 @@ const VaultGraph = () => {
     fetchNote();
   }, [selectedNode]);
 
-  // Physics simulation step
+  // Physics simulation step with Kinetic Energy calculation
   const updatePhysics = useCallback(() => {
     const nodes = nodesRef.current;
     const links = linksRef.current;
@@ -179,7 +185,8 @@ const VaultGraph = () => {
       target.vy -= fy;
     });
 
-    // 3. Update positions
+    // 3. Update positions & track Kinetic Energy
+    let totalKineticEnergy = 0;
     nodes.forEach(n => {
       if (draggedNodeRef.current === n) return; // Don't move actively dragged node
 
@@ -188,10 +195,17 @@ const VaultGraph = () => {
 
       n.x += n.vx;
       n.y += n.vy;
+
+      totalKineticEnergy += n.vx * n.vx + n.vy * n.vy;
     });
+
+    // Kinetic Sleep Threshold: pause physics loop when graph stabilizes
+    if (totalKineticEnergy < 0.018 && !draggedNodeRef.current && !isDraggingRef.current) {
+      isSleepingRef.current = true;
+    }
   }, [params]);
 
-  // Main Canvas render loop
+  // Main Canvas render loop with Viewport Culling & HiDPI scaling
   const render = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -200,7 +214,14 @@ const VaultGraph = () => {
 
     const width = canvas.width;
     const height = canvas.height;
+    const dpr = window.devicePixelRatio || 1;
     const { x: panX, y: panY, scale } = transformRef.current;
+
+    // Viewport Culling Bounding Box in World Coordinates
+    const visibleLeft = -panX / scale - 80;
+    const visibleTop = -panY / scale - 80;
+    const visibleRight = (width / dpr - panX) / scale + 80;
+    const visibleBottom = (height / dpr - panY) / scale + 80;
 
     // Clear background
     ctx.clearRect(0, 0, width, height);
@@ -229,7 +250,7 @@ const VaultGraph = () => {
       });
     }
 
-    // 1. Draw Links (Edges)
+    // 1. Draw Links (Edges) with Viewport Culling
     links.forEach(l => {
       const source = nodeMap.get(l.source);
       const target = nodeMap.get(l.target);
@@ -239,6 +260,13 @@ const VaultGraph = () => {
         (l.source === activeFocus.id && connectedIds.has(l.target)) ||
         (l.target === activeFocus.id && connectedIds.has(l.source))
       );
+
+      // Skip lines outside visible screen unless connected to active node
+      if (!isConnected && !activeFocus) {
+        const srcIn = source.x >= visibleLeft && source.x <= visibleRight && source.y >= visibleTop && source.y <= visibleBottom;
+        const tgtIn = target.x >= visibleLeft && target.x <= visibleRight && target.y >= visibleTop && target.y <= visibleBottom;
+        if (!srcIn && !tgtIn) return;
+      }
 
       ctx.beginPath();
       ctx.moveTo(source.x, source.y);
@@ -263,7 +291,7 @@ const VaultGraph = () => {
       ctx.shadowBlur = 0;
     });
 
-    // 2. Draw Nodes
+    // 2. Draw Nodes with Viewport Culling
     nodes.forEach(node => {
       // Category filter check
       const matchesCat = selectedCategory === 'ALL' || node.category === selectedCategory;
@@ -273,6 +301,12 @@ const VaultGraph = () => {
       const isSelected = selected && selected.id === node.id;
       const isConnected = activeFocus && connectedIds.has(node.id);
       const isDimmed = (activeFocus && !isConnected) || (!matchesCat && selectedCategory !== 'ALL') || (search && !matchesSearch);
+
+      // Viewport culling: skip drawing offscreen non-focused nodes
+      const inViewport = node.x >= visibleLeft && node.x <= visibleRight && node.y >= visibleTop && node.y <= visibleBottom;
+      if (!inViewport && !isHovered && !isSelected && !isConnected) {
+        return;
+      }
 
       const radius = isHovered || isSelected ? node.radius * 1.35 : node.radius;
 
@@ -303,9 +337,9 @@ const VaultGraph = () => {
       ctx.stroke();
       ctx.shadowBlur = 0;
 
-      // Labels
-      const shouldDrawLabel = showLabels || isHovered || isSelected || isConnected || (search && matchesSearch);
-      if (shouldDrawLabel && scale >= 0.4) {
+      // Labels (Level of Detail: skip distant labels on low zoom unless hovered/selected)
+      const shouldDrawLabel = (showLabels || isHovered || isSelected || isConnected || (search && matchesSearch)) && scale >= 0.45;
+      if (shouldDrawLabel) {
         const fontSize = Math.max(10, Math.min(13, 11 / Math.sqrt(scale)));
         ctx.font = `${isHovered || isSelected ? '600' : '400'} ${fontSize}px Inter, sans-serif`;
         ctx.textAlign = 'center';
@@ -331,16 +365,21 @@ const VaultGraph = () => {
     ctx.restore();
   }, [selectedCategory, searchQuery, showLabels, selectedNode]);
 
-  // Animation Frame Loop
+  // Adaptive Animation Frame Loop
   useEffect(() => {
+    let isMounted = true;
     const loop = () => {
-      updatePhysics();
+      if (!isMounted) return;
+      if (!isSleepingRef.current) {
+        updatePhysics();
+      }
       render();
       animFrameRef.current = requestAnimationFrame(loop);
     };
     animFrameRef.current = requestAnimationFrame(loop);
 
     return () => {
+      isMounted = false;
       if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
     };
   }, [updatePhysics, render]);
@@ -398,6 +437,7 @@ const VaultGraph = () => {
 
   // Mouse & Touch Event Handlers
   const handleMouseDown = (e) => {
+    wakeUp();
     const coords = getCanvasCoords(e);
     const clickedNode = getNodeAt(coords.x, coords.y);
 
@@ -414,11 +454,13 @@ const VaultGraph = () => {
     const coords = getCanvasCoords(e);
 
     if (draggedNodeRef.current) {
+      wakeUp();
       draggedNodeRef.current.x = coords.x;
       draggedNodeRef.current.y = coords.y;
       draggedNodeRef.current.vx = 0;
       draggedNodeRef.current.vy = 0;
     } else if (isDraggingRef.current) {
+      wakeUp();
       const dx = e.clientX - lastMousePosRef.current.x;
       const dy = e.clientY - lastMousePosRef.current.y;
       transformRef.current.x += dx;
@@ -426,7 +468,10 @@ const VaultGraph = () => {
       lastMousePosRef.current = { x: e.clientX, y: e.clientY };
     } else {
       const hovered = getNodeAt(coords.x, coords.y);
-      hoveredNodeRef.current = hovered;
+      if (hovered !== hoveredNodeRef.current) {
+        hoveredNodeRef.current = hovered;
+        wakeUp();
+      }
       if (canvasRef.current) {
         canvasRef.current.style.cursor = hovered ? 'pointer' : 'grab';
       }
@@ -436,6 +481,7 @@ const VaultGraph = () => {
   const handleMouseUp = () => {
     isDraggingRef.current = false;
     draggedNodeRef.current = null;
+    wakeUp();
     if (canvasRef.current) {
       canvasRef.current.style.cursor = hoveredNodeRef.current ? 'pointer' : 'grab';
     }
@@ -443,6 +489,7 @@ const VaultGraph = () => {
 
   const handleWheel = (e) => {
     e.preventDefault();
+    wakeUp();
     const zoomFactor = e.deltaY < 0 ? 1.12 : 0.89;
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -462,6 +509,7 @@ const VaultGraph = () => {
 
   // Zoom Button Controls
   const handleZoom = (factor) => {
+    wakeUp();
     const width = containerRef.current ? containerRef.current.clientWidth : 800;
     const height = containerRef.current ? containerRef.current.clientHeight : 600;
     const cx = width / 2;
@@ -476,6 +524,7 @@ const VaultGraph = () => {
   };
 
   const handleResetView = () => {
+    wakeUp();
     transformRef.current = { x: 0, y: 0, scale: 1 };
   };
 
@@ -500,10 +549,13 @@ const VaultGraph = () => {
             type="text"
             placeholder="Buscar nota o tag en el grafo..."
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={(e) => {
+              setSearchQuery(e.target.value);
+              wakeUp();
+            }}
           />
           {searchQuery && (
-            <button className="clear-search-btn" onClick={() => setSearchQuery('')}>
+            <button className="clear-search-btn" onClick={() => { setSearchQuery(''); wakeUp(); }}>
               <X size={14} />
             </button>
           )}
@@ -512,7 +564,7 @@ const VaultGraph = () => {
         <div className="graph-category-filters">
           <button
             className={`cat-pill ${selectedCategory === 'ALL' ? 'active' : ''}`}
-            onClick={() => setSelectedCategory('ALL')}
+            onClick={() => { setSelectedCategory('ALL'); wakeUp(); }}
           >
             Todos ({graphData.total_nodes || 0})
           </button>
@@ -521,7 +573,7 @@ const VaultGraph = () => {
               key={cat.name}
               className={`cat-pill ${selectedCategory === cat.name ? 'active' : ''}`}
               style={{ '--pill-color': cat.color }}
-              onClick={() => setSelectedCategory(selectedCategory === cat.name ? 'ALL' : cat.name)}
+              onClick={() => { setSelectedCategory(selectedCategory === cat.name ? 'ALL' : cat.name); wakeUp(); }}
             >
               <span className="dot" style={{ backgroundColor: cat.color }}></span>
               {cat.name} ({cat.count})
@@ -533,7 +585,7 @@ const VaultGraph = () => {
           <button
             className={`tool-btn ${showLabels ? 'active' : ''}`}
             title="Mostrar/ocultar etiquetas"
-            onClick={() => setShowLabels(!showLabels)}
+            onClick={() => { setShowLabels(!showLabels); wakeUp(); }}
           >
             Aa
           </button>

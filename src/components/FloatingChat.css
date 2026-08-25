@@ -19,40 +19,43 @@
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  box-shadow: 0 4px 12px rgba(139, 92, 246, 0.4);
-  transition: transform 0.2s, box-shadow 0.2s;
+  box-shadow: 0 8px 24px rgba(139, 92, 246, 0.45);
+  transition: var(--transition-spring);
 }
 
 .floating-chat-toggle:hover {
-  transform: scale(1.05);
-  box-shadow: 0 6px 16px rgba(139, 92, 246, 0.5);
+  transform: scale(1.08) translateY(-2px);
+  box-shadow: 0 12px 28px rgba(139, 92, 246, 0.6);
 }
 
 .floating-chat-toggle.active {
-  background: var(--bg-card);
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
   color: var(--text-primary);
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--glass-border);
 }
 
 .floating-chat-window {
-  width: 400px;
-  height: 600px;
+  width: 420px;
+  height: 620px;
   max-height: calc(100vh - 100px);
-  background-color: var(--bg-main);
-  border: 1px solid var(--border-color);
+  background-color: var(--glass-bg);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--glass-border);
   border-radius: var(--radius-lg);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+  box-shadow: var(--shadow-spatial-hover);
   display: flex;
   flex-direction: column;
   margin-bottom: 16px;
   overflow: hidden;
-  animation: slideUpFade 0.3s ease-out forwards;
+  animation: slideUpFade 0.28s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 @keyframes slideUpFade {
   from {
     opacity: 0;
-    transform: translateY(20px) scale(0.95);
+    transform: translateY(24px) scale(0.96);
   }
   to {
     opacity: 1;
@@ -65,8 +68,8 @@
   justify-content: space-between;
   align-items: center;
   padding: 16px;
-  background-color: var(--bg-card);
-  border-bottom: 1px solid var(--border-color);
+  background-color: rgba(255, 255, 255, 0.03);
+  border-bottom: 1px solid var(--glass-border);
 }
 
 .floating-chat-title {

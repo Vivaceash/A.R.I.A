@@ -30,6 +30,13 @@
   --shadow-card: 0 4px 20px rgba(0, 0, 0, 0.3);
   --shadow-card-hover: 0 8px 30px rgba(0, 0, 0, 0.5);
   
+  --glass-bg: rgba(18, 18, 24, 0.75);
+  --glass-border: rgba(255, 255, 255, 0.09);
+  --glass-blur: blur(16px);
+  --shadow-spatial: 0 8px 32px 0 rgba(0, 0, 0, 0.37), 0 2px 8px 0 rgba(0, 0, 0, 0.2);
+  --shadow-spatial-hover: 0 16px 40px 0 rgba(0, 0, 0, 0.55), 0 0 24px 0 rgba(59, 130, 246, 0.18);
+  --transition-spring: all 0.24s cubic-bezier(0.16, 1, 0.3, 1);
+
   --radius-sm: 6px;
   --radius-md: 10px;
   --radius-lg: 16px;
@@ -64,6 +71,13 @@
   --border-hover: rgba(15, 23, 42, 0.16);
   --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.05), 0 1px 2px -1px rgba(0, 0, 0, 0.05);
   --shadow-card-hover: 0 10px 25px -5px rgba(0, 0, 0, 0.08), 0 8px 10px -6px rgba(0, 0, 0, 0.04);
+
+  --glass-bg: rgba(255, 255, 255, 0.85);
+  --glass-border: rgba(15, 23, 42, 0.08);
+  --glass-blur: blur(16px);
+  --shadow-spatial: 0 8px 30px rgba(0, 0, 0, 0.06), 0 2px 6px rgba(0, 0, 0, 0.04);
+  --shadow-spatial-hover: 0 16px 36px rgba(0, 0, 0, 0.12), 0 0 20px rgba(37, 99, 235, 0.12);
+  --transition-spring: all 0.24s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 * {

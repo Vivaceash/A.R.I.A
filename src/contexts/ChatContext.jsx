@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo, useCallback } from 'react';
 
 const ChatContext = createContext();
 
@@ -21,15 +21,15 @@ export const ChatProvider = ({ children }) => {
     localStorage.setItem('aria_chat_history', JSON.stringify(messages));
   }, [messages]);
 
-  const clearHistory = () => {
+  const clearHistory = useCallback(() => {
     if (window.confirm('¿Estás seguro de que deseas vaciar el historial de conversación?')) {
       setMessages([
         { role: 'assistant', content: 'Historial borrado. ¡Hola! Soy A.R.I.A, ¿en qué te puedo asistir ahora?' }
       ]);
     }
-  };
+  }, []);
 
-  const sendMessage = async (messageText, currentPath) => {
+  const sendMessage = useCallback(async (messageText, currentPath) => {
     if (!messageText.trim() || isGenerating) return;
 
     const userMessage = { role: 'user', content: messageText.trim() };
@@ -139,17 +139,19 @@ export const ChatProvider = ({ children }) => {
       setIsGenerating(false);
       setStatusMessage('');
     }
-  };
+  }, [messages, isGenerating]);
+
+  const contextValue = useMemo(() => ({
+    messages,
+    isGenerating,
+    status,
+    statusMessage,
+    sendMessage,
+    clearHistory
+  }), [messages, isGenerating, status, statusMessage, sendMessage, clearHistory]);
 
   return (
-    <ChatContext.Provider value={{
-      messages,
-      isGenerating,
-      status,
-      statusMessage,
-      sendMessage,
-      clearHistory
-    }}>
+    <ChatContext.Provider value={contextValue}>
       {children}
     </ChatContext.Provider>
   );

@@ -20,7 +20,24 @@ from datetime import datetime, timedelta
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
+from pathlib import Path
+
 app = FastAPI()
+
+def secure_resolve_path(filename_or_subpath: str, base_dir: Path | str, must_exist: bool = True) -> Path:
+    """Valida de forma estricta que la ruta pertenezca al directorio base seguro."""
+    base = Path(base_dir).resolve()
+    clean_subpath = str(filename_or_subpath).lstrip("/\\")
+    target_path = (base / clean_subpath).resolve()
+    try:
+        target_path.relative_to(base)
+    except ValueError:
+        raise HTTPException(status_code=403, detail="Acceso denegado: Intento de Path Traversal detectado.")
+        
+    if must_exist and not target_path.exists():
+        raise HTTPException(status_code=404, detail="Archivo o recurso no encontrado.")
+        
+    return target_path
 
 class SimplePwdContext:
     @staticmethod
@@ -373,14 +390,19 @@ class ConnectionManager:
         self.active_connections.append(websocket)
 
     def disconnect(self, websocket: WebSocket):
-        self.active_connections.remove(websocket)
+        if websocket in self.active_connections:
+            self.active_connections.remove(websocket)
 
     async def broadcast(self, message: dict):
+        disconnected = []
         for connection in self.active_connections:
             try:
                 await connection.send_text(json.dumps(message))
             except Exception as e:
-                print(f"Error sending message: {e}")
+                print(f"Error sending message, scheduling cleanup: {e}")
+                disconnected.append(connection)
+        for dead_socket in disconnected:
+            self.disconnect(dead_socket)
 
 manager = ConnectionManager()
 
@@ -750,21 +772,24 @@ def get_comparisons(module: str = None):
 
 @app.get("/api/download/{filename}")
 def download_file(filename: str):
-    # We should search for the file globally since we only have filename
     # Security check to prevent path traversal
-    if ".." in filename or "/" in filename or "\\" in filename:
-        raise HTTPException(status_code=400, detail="Invalid filename")
+    safe_path = secure_resolve_path(filename, DIRECTORY, must_exist=False)
     
     filepath = None
-    for root, dirs, files in os.walk(DIRECTORY):
-        if filename in files:
-            filepath = os.path.join(root, filename)
-            break
+    if safe_path.exists() and safe_path.is_file():
+        filepath = safe_path
+    else:
+        for root, dirs, files in os.walk(DIRECTORY):
+            if filename in files:
+                candidate = Path(root) / filename
+                if secure_resolve_path(str(candidate.relative_to(DIRECTORY)), DIRECTORY, must_exist=True).exists():
+                    filepath = candidate
+                    break
             
-    if not filepath or not os.path.exists(filepath):
+    if not filepath or not filepath.exists():
         raise HTTPException(status_code=404, detail="File not found")
         
-    return FileResponse(path=filepath, filename=filename)
+    return FileResponse(path=str(filepath), filename=filename)
 
 @app.get("/api/modules")
 def get_modules():
@@ -775,21 +800,16 @@ def get_modules():
 
 @app.post("/api/restore/{filename}")
 def restore_file(filename: str):
-    if ".." in filename or "/" in filename or "\\" in filename:
-        raise HTTPException(status_code=400, detail="Invalid filename")
-    
-    backup_path = os.path.join(BACKUP_DIR, filename)
-    if not os.path.exists(backup_path):
-        raise HTTPException(status_code=404, detail="No backup found for this file")
+    backup_path = secure_resolve_path(filename, BACKUP_DIR, must_exist=True)
+    dest_path = secure_resolve_path(filename, DIRECTORY, must_exist=False)
         
     try:
-        dest_path = os.path.join(DIRECTORY, filename)
-        shutil.copy2(backup_path, dest_path)
+        shutil.copy2(str(backup_path), str(dest_path))
         
         owner = "Sistema (Restauración)"
         alert_id = f"res-{int(time.time() * 1000)}-{filename}"
         desc = f"Archivo {filename} restaurado desde la papelera de seguridad."
-        log_event(alert_id, filename, desc, "Restauración", "Bajo", "icon-info", None, dest_path, os.stat(backup_path).st_size, owner)
+        log_event(alert_id, filename, desc, "Restauración", "Bajo", "icon-info", None, str(dest_path), os.stat(str(backup_path)).st_size, owner)
         
         return {"status": "success", "message": "File restored"}
     except Exception as e:
@@ -892,17 +912,12 @@ def get_signatures():
 
 @app.delete("/api/files/{filename}")
 def delete_file(filename: str):
-    if ".." in filename or "/" in filename or "\\" in filename:
-        raise HTTPException(status_code=400, detail="Invalid filename")
-    filepath = os.path.join(DIRECTORY, filename)
-    if os.path.exists(filepath):
-        try:
-            os.remove(filepath)
-            return {"status": "success", "message": "File deleted"}
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
-    else:
-        raise HTTPException(status_code=404, detail="File not found")
+    safe_path = secure_resolve_path(filename, DIRECTORY, must_exist=True)
+    try:
+        os.remove(str(safe_path))
+        return {"status": "success", "message": "File deleted"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/open-folder")
 def open_folder():
@@ -1183,6 +1198,10 @@ class FinanceExportLog(BaseModel):
 async def log_finance_export(payload: FinanceExportLog):
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
+    c.execute(
+        'INSERT INTO export_logs (exported_by, destination, report_type) VALUES (?, ?, ?)',
+        ("Operador (Finanzas)", f"Recibo TX #{payload.transaction_id}", f"Comprobante PDF - {payload.concept}")
+    )
     conn.commit()
     conn.close()
 
@@ -1344,23 +1363,13 @@ async def chat_endpoint(payload: ChatPayload):
         try:
             from rag_engine_v2 import MemoryWriter
             mw = MemoryWriter(VAULT_PATH)
-            # Generate a clean topic title from the user query
             topic_clean = re.sub(r'^(recuerda que|aprende que|guarda en tu memoria que|memoriza que|crea una memoria que|guarda esto en tu memoria que|guarda en tu memoria|memoriza|aprende)\s*:?', '', latest_query, flags=re.IGNORECASE).strip()
             topic_title = topic_clean[:50].replace('\n', ' ').strip() or "Nuevo Aprendizaje"
             mw.write_learning(
                 topic=topic_title,
-                content=f"""## Aprendizaje Instruido por el Padre
-
-- **Fecha**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-- **Autor / Origen**: Padre (Chat Global)
-
-### Contenido / Instrucción
-{latest_query}
-
-### Contexto de Aplicación
-Esta memoria fue dictada directamente por el Padre en la interfaz de conversación de A.R.I.A para ser retenida de forma permanente.
-""",
-                tags=["aprendizaje", "chat", "padre", "memoria-dinamica"]
+                content=latest_query,
+                tags=["aprendizaje", "chat", "padre", "memoria-dinamica"],
+                module="general"
             )
         except Exception as mem_err:
             print(f"[MemoryWriter] Error guardando aprendizaje desde chat: {mem_err}")
@@ -1691,15 +1700,13 @@ async def get_vault_graph():
 @app.get("/api/vault/note")
 async def get_vault_note(path: str):
     """Get full markdown content of a note from Obsidian vault."""
-    full_path = os.path.abspath(os.path.join(VAULT_PATH, path))
-    if not full_path.startswith(os.path.abspath(VAULT_PATH)) or not os.path.exists(full_path):
-        raise HTTPException(status_code=404, detail="Nota no encontrada")
+    safe_path = secure_resolve_path(path, VAULT_PATH, must_exist=True)
 
-    with open(full_path, "r", encoding="utf-8", errors="ignore") as f:
+    with open(safe_path, "r", encoding="utf-8", errors="ignore") as f:
         content = f.read()
 
     from rag_engine_v2 import ObsidianNoteParser
-    parsed = ObsidianNoteParser.parse(full_path)
+    parsed = ObsidianNoteParser.parse(str(safe_path))
 
     return {
         "title": parsed["title"],
