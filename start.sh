@@ -91,12 +91,16 @@ echo -e "   ${GREEN}✓ Frontend activo en http://localhost:5173 (PID: $FRONTEND
 
 # 5. Resumen de Estado
 LOCAL_IP=$(ip route get 1.1.1.1 2>/dev/null | awk '{print $7}' || ip addr show 2>/dev/null | grep -E "inet " | grep -v "127.0.0.1" | awk '{print $2}' | cut -d/ -f1 | head -n 1 || echo "")
+TAILSCALE_IP=$(tailscale ip -4 2>/dev/null || ip addr show tailscale0 2>/dev/null | grep -E "inet " | awk '{print $2}' | cut -d/ -f1 | head -n 1 || echo "")
 
 echo -e "\n${GREEN}${BOLD}🚀 ¡Todos los servicios de A.R.I.A están operativos!${NC}"
 echo -e "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo -e "  🌐 ${BOLD}Dashboard Local:${NC}       ${CYAN}http://localhost:5173${NC}"
 if [ -n "$LOCAL_IP" ]; then
 echo -e "  📡 ${BOLD}Acceso en Red Local:${NC}   ${GREEN}http://${LOCAL_IP}:5173${NC}"
+fi
+if [ -n "$TAILSCALE_IP" ]; then
+echo -e "  🔒 ${BOLD}Acceso vía Tailscale:${NC}  ${BLUE}http://${TAILSCALE_IP}:5173${NC}"
 fi
 echo -e "  🔌 ${BOLD}Backend API / Docs:${NC}     ${CYAN}http://127.0.0.1:8000/docs${NC}"
 echo -e "  🧠 ${BOLD}Motor LLM (Ollama):${NC}     ${CYAN}http://127.0.0.1:11434${NC}"
