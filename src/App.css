@@ -64,3 +64,124 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* Health Cards */
+.health-cards-container {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+.health-card {
+  display: flex;
+  align-items: center;
+  padding: 20px 24px;
+  border-radius: var(--radius-lg, 12px);
+  text-decoration: none;
+  background-color: var(--bg-card);
+  border: 2px solid transparent;
+  transition: all 0.3s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.health-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+}
+
+.health-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  margin-right: 20px;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.health-info h3 {
+  margin: 0 0 4px 0;
+  font-size: 18px;
+  color: var(--text-primary);
+}
+
+.health-info p {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+/* Good State */
+.health-good {
+  border-color: rgba(16, 185, 129, 0.2);
+}
+.health-good:hover {
+  border-color: rgba(16, 185, 129, 0.5);
+}
+.health-good .health-icon {
+  color: #10B981;
+}
+.health-good .health-info p {
+  color: #10B981;
+}
+
+/* Danger State (Cyber) */
+.health-danger {
+  background: linear-gradient(90deg, rgba(239, 68, 68, 0.05) 0%, var(--bg-card) 100%);
+  border-color: rgba(239, 68, 68, 0.4);
+}
+.health-danger:hover {
+  border-color: #EF4444;
+  box-shadow: 0 0 20px rgba(239, 68, 68, 0.2);
+}
+.health-danger .health-icon {
+  color: #EF4444;
+  background: rgba(239, 68, 68, 0.1);
+}
+.health-danger .health-info p {
+  color: #EF4444;
+}
+
+/* Warning State (Finance) */
+.health-warning {
+  background: linear-gradient(90deg, rgba(245, 158, 11, 0.05) 0%, var(--bg-card) 100%);
+  border-color: rgba(245, 158, 11, 0.4);
+}
+.health-warning:hover {
+  border-color: #F59E0B;
+  box-shadow: 0 0 20px rgba(245, 158, 11, 0.2);
+}
+.health-warning .health-icon {
+  color: #F59E0B;
+  background: rgba(245, 158, 11, 0.1);
+}
+.health-warning .health-info p {
+  color: #F59E0B;
+}
+
+/* Animations */
+.pulse-danger {
+  animation: pulseDanger 1.5s infinite;
+}
+@keyframes pulseDanger {
+  0% { filter: drop-shadow(0 0 2px rgba(239, 68, 68, 0.4)); transform: scale(1); }
+  50% { filter: drop-shadow(0 0 10px rgba(239, 68, 68, 0.8)); transform: scale(1.1); }
+  100% { filter: drop-shadow(0 0 2px rgba(239, 68, 68, 0.4)); transform: scale(1); }
+}
+
+.pulse-warning {
+  animation: pulseWarning 1.5s infinite;
+}
+@keyframes pulseWarning {
+  0% { filter: drop-shadow(0 0 2px rgba(245, 158, 11, 0.4)); transform: scale(1); }
+  50% { filter: drop-shadow(0 0 10px rgba(245, 158, 11, 0.8)); transform: scale(1.1); }
+  100% { filter: drop-shadow(0 0 2px rgba(245, 158, 11, 0.4)); transform: scale(1); }
+}
+
+@media (max-width: 768px) {
+  .health-cards-container {
+    grid-template-columns: 1fr;
+  }
+}

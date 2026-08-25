@@ -55,13 +55,14 @@
 }
 
 .nav-item:hover {
-  background-color: rgba(255, 255, 255, 0.03);
+  background-color: var(--bg-card-hover);
   color: var(--text-primary);
 }
 
 .nav-item.active {
-  background-color: var(--bg-card-hover);
-  color: var(--text-primary);
+  background-color: var(--accent-primary-dim);
+  color: var(--accent-primary);
+  font-weight: 600;
 }
 
 .nav-item svg {

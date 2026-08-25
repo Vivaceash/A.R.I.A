@@ -30,3 +30,16 @@ __pycache__/
 *.db
 .env
 aria_chroma_db/
+
+# Antigravity agent customizations (skills, rules)
+.agents/
+.agent/
+_agents/
+_agent/
+.backup/
+*.db-shm
+*.db-wal
+*.db-journal
+signatures.json
+documentos_monitoreados/
+

@@ -1,0 +1,212 @@
+.vault-container {
+  padding: 24px;
+  max-width: 1200px;
+  margin: 0 auto;
+  color: var(--text-primary);
+}
+
+.vault-header {
+  margin-bottom: 24px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.vault-header h1 {
+  margin: 0;
+  font-size: 28px;
+  color: var(--accent-primary);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-weight: 700;
+}
+
+.vault-grid {
+  display: grid;
+  grid-template-columns: 350px 1fr;
+  gap: 24px;
+  height: calc(100vh - 140px);
+}
+
+.vault-sidebar {
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.vault-sidebar-header {
+  padding: 16px;
+  border-bottom: 1px solid var(--border-color);
+  background-color: var(--bg-card-subtle);
+  font-weight: 600;
+  color: var(--text-secondary);
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.vault-file-list {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.vault-file-item {
+  padding: 16px;
+  border-bottom: 1px solid var(--border-subtle);
+  cursor: pointer;
+  transition: background-color 0.2s;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.vault-file-item:hover {
+  background-color: var(--bg-card-hover);
+}
+
+.vault-file-item.active {
+  background-color: var(--accent-primary-dim);
+  border-left: 3px solid var(--accent-primary);
+}
+
+.file-name {
+  font-weight: 500;
+  font-size: 14px;
+  word-break: break-all;
+  color: var(--text-primary);
+}
+
+.file-versions-count {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.vault-content {
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.vault-content-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--text-muted);
+  gap: 16px;
+}
+
+.timeline-container {
+  padding: 16px;
+  border-bottom: 1px solid var(--border-color);
+  background-color: var(--bg-card-subtle);
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+  align-items: center;
+}
+
+.timeline-item {
+  min-width: 160px;
+  padding: 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+  background: var(--bg-card);
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  box-shadow: var(--shadow-card);
+}
+
+.timeline-item:hover {
+  border-color: var(--accent-primary);
+  transform: translateY(-1px);
+}
+
+.timeline-item.active {
+  background-color: var(--accent-primary);
+  border-color: var(--accent-primary);
+  color: white;
+}
+
+.timeline-date {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.timeline-time {
+  font-size: 11px;
+  opacity: 0.8;
+}
+
+.snapshot-viewer {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.snapshot-header {
+  padding: 16px 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-card-subtle);
+}
+
+.btn-restore {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background-color: #10B981;
+  color: white;
+  border: none;
+  padding: 10px 18px;
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
+}
+
+.btn-restore:hover {
+  background-color: #059669;
+}
+
+.snapshot-body {
+  flex: 1;
+  padding: 24px;
+  overflow-y: auto;
+  font-family: 'Consolas', 'Courier New', monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  background-color: #0d1117;
+  color: #c9d1d9;
+  white-space: pre-wrap;
+}
+
+[data-theme='light'] .snapshot-body {
+  background-color: #F8FAFC;
+  color: #0F172A;
+  border-top: 1px solid var(--border-color);
+}
+
+@media (max-width: 768px) {
+  .vault-grid {
+    grid-template-columns: 1fr;
+    height: auto;
+  }
+}

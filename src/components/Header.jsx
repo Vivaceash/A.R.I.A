@@ -27,17 +27,33 @@ const Header = ({ title = "Dashboard", timeframe, setTimeframe, showTimeframe = 
   useEffect(() => {
     fetchAlerts();
     
+    let ws = null;
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const ws = new WebSocket(`${protocol}//${window.location.host}/api/ws`);
-    ws.onmessage = (event) => {
-      try {
-        const message = JSON.parse(event.data);
-        if (['modified', 'deleted', 'created', 'resolved'].includes(message.type)) {
-          fetchAlerts();
+    try {
+      ws = new WebSocket(`${protocol}//${window.location.host}/api/ws`);
+      ws.onmessage = (event) => {
+        try {
+          const message = JSON.parse(event.data);
+          if (['modified', 'deleted', 'created', 'resolved'].includes(message.type)) {
+            fetchAlerts();
+          }
+        } catch (e) {}
+      };
+      ws.onerror = () => {};
+    } catch (e) {}
+
+    return () => {
+      if (ws) {
+        ws.onmessage = null;
+        ws.onerror = null;
+        ws.onclose = null;
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.close();
+        } else if (ws.readyState === WebSocket.CONNECTING) {
+          ws.onopen = () => ws.close();
         }
-      } catch (e) {}
+      }
     };
-    return () => ws.close();
   }, []);
 
   useEffect(() => {

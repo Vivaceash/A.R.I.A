@@ -100,27 +100,75 @@ function Comparaciones() {
   const [selectedAlertForAnalysis, setSelectedAlertForAnalysis] = useState(null);
   const [isAnalysisModalOpen, setIsAnalysisModalOpen] = useState(false);
   const [isGrouped, setIsGrouped] = useState(false);
-
-  useEffect(() => {
-    const fetchFiles = async () => {
-      try {
-        const response = await fetch(`/api/comparisons?module=${module || 'general'}`);
-        if (!response.ok) throw new Error('Error al obtener archivos');
-        const data = await response.json();
-        setFiles(data);
-      } catch (error) {
-        console.error("Error loading files:", error);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchFiles();
-  }, [module]);
-
   const [searchTerm, setSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState('timestamp');
   const [sortOrder, setSortOrder] = useState('desc');
   const [selectedExtensions, setSelectedExtensions] = useState([]);
+
+  const fetchFiles = async () => {
+    try {
+      const response = await fetch(`/api/comparisons?module=${module || 'general'}`);
+      if (!response.ok) throw new Error('Error al obtener archivos');
+      const data = await response.json();
+      setFiles(data);
+    } catch (error) {
+      console.error("Error loading files:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchFiles();
+
+    let ws = null;
+    let reconnectTimeout = null;
+    let isMounted = true;
+
+    const connect = () => {
+      if (!isMounted) return;
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      try {
+        ws = new WebSocket(`${protocol}//${window.location.host}/api/ws`);
+        
+        ws.onmessage = (event) => {
+          try {
+            const message = JSON.parse(event.data);
+            if (['modified', 'deleted', 'created', 'resolved'].includes(message.type)) {
+              fetchFiles();
+            }
+          } catch (e) {
+            // ignore
+          }
+        };
+
+        ws.onclose = () => {
+          if (isMounted) {
+            reconnectTimeout = setTimeout(connect, 3000);
+          }
+        };
+
+        ws.onerror = () => {};
+      } catch (e) {}
+    };
+
+    connect();
+
+    return () => {
+      isMounted = false;
+      if (reconnectTimeout) clearTimeout(reconnectTimeout);
+      if (ws) {
+        ws.onmessage = null;
+        ws.onerror = null;
+        ws.onclose = null;
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.close();
+        } else if (ws.readyState === WebSocket.CONNECTING) {
+          ws.onopen = () => ws.close();
+        }
+      }
+    };
+  }, [module]);
 
   const availableExtensions = useMemo(() => {
     const exts = new Set();

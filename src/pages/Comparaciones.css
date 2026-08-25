@@ -93,10 +93,11 @@
 .extension-filters-container {
   margin-top: -12px;
   margin-bottom: 24px;
-  background-color: rgba(0, 0, 0, 0.2);
+  background-color: var(--bg-card);
   padding: 12px 16px;
   border-radius: var(--radius-md);
   border: 1px solid var(--border-color);
+  box-shadow: var(--shadow-card);
   animation: fadeIn 0.3s ease-in-out;
 }
 

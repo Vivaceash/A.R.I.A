@@ -1,0 +1,245 @@
+.diccionario-container {
+  padding: 24px;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.diccionario-header {
+  margin-bottom: 32px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+}
+
+.diccionario-stats {
+  display: flex;
+  flex-direction: column;
+}
+
+.diccionario-stats h2 {
+  font-size: 3rem;
+  margin: 0;
+  color: var(--text-primary);
+  line-height: 1;
+}
+
+.diccionario-stats p {
+  margin: 8px 0 0;
+  color: var(--text-muted);
+  font-size: 1rem;
+}
+
+.search-container {
+  position: relative;
+  width: 300px;
+}
+
+.search-container .search-icon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+}
+
+.search-input {
+  width: 100%;
+  padding: 10px 10px 10px 40px;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-card);
+  color: var(--text-primary);
+  font-size: 0.95rem;
+}
+
+.search-input:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
+}
+
+.amenaza-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+  gap: 24px;
+}
+
+.amenaza-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 24px;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  position: relative;
+  overflow: hidden;
+}
+
+.amenaza-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.15);
+}
+
+.amenaza-card.severity-crítico {
+  border-top: 4px solid #EF4444;
+}
+
+.amenaza-card.severity-alto {
+  border-top: 4px solid #F97316;
+}
+
+.amenaza-card.severity-medio {
+  border-top: 4px solid #F59E0B;
+}
+
+.amenaza-card.severity-bajo {
+  border-top: 4px solid #3B82F6;
+}
+
+.amenaza-card-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.amenaza-icon {
+  padding: 10px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.amenaza-card.severity-crítico .amenaza-icon {
+  background: rgba(239, 68, 68, 0.1);
+  color: #EF4444;
+}
+
+.amenaza-card.severity-alto .amenaza-icon {
+  background: rgba(249, 115, 22, 0.1);
+  color: #F97316;
+}
+
+.amenaza-card.severity-medio .amenaza-icon {
+  background: rgba(245, 158, 11, 0.1);
+  color: #F59E0B;
+}
+
+.amenaza-card.severity-bajo .amenaza-icon {
+  background: rgba(59, 130, 246, 0.1);
+  color: #3B82F6;
+}
+
+.amenaza-title h3 {
+  margin: 0 0 4px 0;
+  font-size: 1.1rem;
+  color: var(--text-primary);
+  line-height: 1.3;
+}
+
+.amenaza-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.amenaza-card.severity-crítico .amenaza-badge {
+  background: rgba(239, 68, 68, 0.2);
+  color: #FCA5A5;
+}
+
+.amenaza-card.severity-alto .amenaza-badge {
+  background: rgba(249, 115, 22, 0.2);
+  color: #FDBA74;
+}
+
+.amenaza-card.severity-medio .amenaza-badge {
+  background: rgba(245, 158, 11, 0.2);
+  color: #FCD34D;
+}
+
+.amenaza-card.severity-bajo .amenaza-badge {
+  background: rgba(59, 130, 246, 0.2);
+  color: #93C5FD;
+}
+
+.amenaza-details {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.detail-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.detail-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+
+.detail-value {
+  font-size: 0.95rem;
+  color: var(--text-primary);
+  line-height: 1.5;
+}
+
+.pattern-code {
+  background: rgba(0, 0, 0, 0.2);
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-family: 'Fira Code', monospace;
+  font-size: 0.85rem;
+  color: #A78BFA;
+  word-break: break-all;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+[data-theme='light'] .amenaza-card.severity-crítico .amenaza-badge {
+  background: rgba(239, 68, 68, 0.1);
+  color: #DC2626;
+}
+
+[data-theme='light'] .amenaza-card.severity-alto .amenaza-badge {
+  background: rgba(249, 115, 22, 0.1);
+  color: #C2410C;
+}
+
+[data-theme='light'] .amenaza-card.severity-medio .amenaza-badge {
+  background: rgba(245, 158, 11, 0.1);
+  color: #B45309;
+}
+
+[data-theme='light'] .amenaza-card.severity-bajo .amenaza-badge {
+  background: rgba(37, 99, 235, 0.1);
+  color: #2563EB;
+}
+
+[data-theme='light'] .pattern-code {
+  background: var(--bg-card-subtle);
+  color: #6D28D9;
+  border: 1px solid var(--border-color);
+}
+
+.loading-state, .empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 64px 24px;
+  text-align: center;
+  background: var(--bg-card);
+  border-radius: 12px;
+  border: 1px dashed var(--border-color);
+  color: var(--text-muted);
+}

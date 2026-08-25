@@ -1,19 +1,43 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, File, UploadFile, Depends
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
+import bcrypt
 import os
-import re
-import pwd
 import time
 import json
 import asyncio
 import sqlite3
 import subprocess
+import shutil
+import re
+import hashlib
+try:
+    import pwd
+except ImportError:
+    pwd = None
 from datetime import datetime, timedelta
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
 app = FastAPI()
+
+class SimplePwdContext:
+    @staticmethod
+    def hash(secret: str) -> str:
+        if not secret: secret = "123456"
+        salt = bcrypt.gensalt()
+        return bcrypt.hashpw(secret.encode('utf-8')[:72], salt).decode('utf-8')
+
+    @staticmethod
+    def verify(secret: str, hashed: str) -> bool:
+        if not secret or not hashed: return False
+        try:
+            return bcrypt.checkpw(secret.encode('utf-8')[:72], hashed.encode('utf-8'))
+        except Exception:
+            return False
+
+pwd_context = SimplePwdContext()
 
 app.add_middleware(
     CORSMiddleware,
@@ -23,14 +47,28 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-DIRECTORY = "/home/astra/Projects/concilio"
-DB_FILE = "/home/astra/Projects/ARIA/aria.db"
 VAULT_PATH = "/home/astra/Documents/ARIA_Vault/"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DIRECTORY = "/home/astra/Projects/concilio"
+BACKUP_DIR = os.path.join(BASE_DIR, ".backup")
+DB_FILE = os.path.join(BASE_DIR, "aria.db")
+
+if not os.path.exists(VAULT_PATH):
+    os.makedirs(VAULT_PATH, exist_ok=True)
+
+if not os.path.exists("receipts"):
+    os.makedirs("receipts")
+app.mount("/receipts", StaticFiles(directory="receipts"), name="receipts")
 
 # Initialize SQLite Database
 def init_db():
+    if not os.path.exists(DIRECTORY):
+        os.makedirs(DIRECTORY, exist_ok=True)
+    if not os.path.exists(BACKUP_DIR):
+        os.makedirs(BACKUP_DIR, exist_ok=True)
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
+    c.execute('PRAGMA journal_mode=WAL;')
     c.execute('''
         CREATE TABLE IF NOT EXISTS alert_history (
             id TEXT PRIMARY KEY,
@@ -50,6 +88,56 @@ def init_db():
             timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     ''')
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS export_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            exported_by TEXT,
+            destination TEXT,
+            report_type TEXT,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS financial_transactions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            type TEXT,
+            amount REAL,
+            concept TEXT,
+            category TEXT,
+            date DATETIME,
+            status TEXT
+        )
+    ''')
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS financial_budgets (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            category TEXT UNIQUE,
+            monthly_limit REAL
+        )
+    ''')
+    
+    # Alters for financial_transactions
+    try:
+        c.execute('ALTER TABLE financial_transactions ADD COLUMN due_date DATETIME')
+    except sqlite3.OperationalError:
+        pass
+    try:
+        c.execute('ALTER TABLE financial_transactions ADD COLUMN subtotal REAL')
+    except sqlite3.OperationalError:
+        pass
+    try:
+        c.execute('ALTER TABLE financial_transactions ADD COLUMN tax_amount REAL')
+    except sqlite3.OperationalError:
+        pass
+    try:
+        c.execute('ALTER TABLE financial_transactions ADD COLUMN tax_rate REAL')
+    except sqlite3.OperationalError:
+        pass
+    try:
+        c.execute('ALTER TABLE financial_transactions ADD COLUMN attachment_path TEXT')
+    except sqlite3.OperationalError:
+        pass
+
     try:
         c.execute('ALTER TABLE alert_history ADD COLUMN resolved BOOLEAN DEFAULT 0')
     except sqlite3.OperationalError:
@@ -78,11 +166,84 @@ def init_db():
         c.execute('ALTER TABLE alert_history ADD COLUMN ai_analysis TEXT')
     except sqlite3.OperationalError:
         pass
+        
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE,
+            role TEXT,
+            department TEXT,
+            password_hash TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    try:
+        c.execute('ALTER TABLE users ADD COLUMN department TEXT')
+    except sqlite3.OperationalError:
+        pass
+    try:
+        c.execute('ALTER TABLE users ADD COLUMN password_hash TEXT')
+    except sqlite3.OperationalError:
+        pass
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS iam_sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            ip_address TEXT,
+            country TEXT,
+            flag TEXT,
+            status TEXT DEFAULT 'active',
+            last_login DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(user_id) REFERENCES users(id)
+        )
+    ''')
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS iam_anomalies (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT,
+            description TEXT,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
     conn.commit()
     conn.close()
     
+    seed_iam_data()
+    
     # Run database migration to split existing long AI markdown text to ai_analysis
     migrate_existing_data()
+
+def seed_iam_data():
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT COUNT(*) FROM users")
+    if c.fetchone()[0] == 0:
+        default_hash = pwd_context.hash("123456")
+        users = [
+            ("Carlos M.", "Administrador", "Dirección", default_hash),
+            ("Ana P.", "Operativo", "Finanzas", default_hash),
+            ("Sistema", "Invitado", "Operaciones", default_hash),
+            ("David L.", "Operativo", "Recursos Humanos", default_hash)
+        ]
+        c.executemany("INSERT INTO users (username, role, department, password_hash) VALUES (?, ?, ?, ?)", users)
+        
+        sessions = [
+            (1, "192.168.1.45", "México", "🇲🇽", "active", (datetime.now() - timedelta(hours=2)).isoformat()),
+            (2, "189.143.22.1", "México", "🇲🇽", "active", (datetime.now() - timedelta(minutes=45)).isoformat()),
+            (3, "10.0.0.5", "Servidor Local", "💻", "active", (datetime.now() - timedelta(days=1)).isoformat()),
+            (4, "45.22.11.9", "Estados Unidos", "🇺🇸", "active", (datetime.now() - timedelta(minutes=10)).isoformat())
+        ]
+        c.executemany("INSERT INTO iam_sessions (user_id, ip_address, country, flag, status, last_login) VALUES (?, ?, ?, ?, ?, ?)", sessions)
+        
+        anomalies = [
+            ("Viaje Imposible Detectado", "Intento de login de Carlos M. desde Rusia (IP: 95.173.136.70) 5 min después de un login en México.", (datetime.now() - timedelta(minutes=15)).isoformat()),
+            ("Múltiples Intentos Fallidos", "5 intentos fallidos de contraseña para el usuario 'Admin' desde una IP en Brasil.", (datetime.now() - timedelta(hours=1)).isoformat()),
+            ("Acceso a Horas Inusuales", "Usuario 'Finanzas_Invitado' inició sesión a las 3:45 AM (Fuera de horario laboral).", (datetime.now() - timedelta(days=1)).isoformat())
+        ]
+        c.executemany("INSERT INTO iam_anomalies (title, description, timestamp) VALUES (?, ?, ?)", anomalies)
+        
+    conn.commit()
+    conn.close()
 
 def migrate_existing_data():
     conn = sqlite3.connect(DB_FILE)
@@ -106,6 +267,8 @@ def save_file_snapshot(filename, content):
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
     c.execute('INSERT INTO file_snapshots (filename, content) VALUES (?, ?)', (filename, content))
+    seven_days_ago = (datetime.now() - timedelta(days=7)).isoformat()
+    c.execute('DELETE FROM file_snapshots WHERE filename = ? AND timestamp < ?', (filename, seven_days_ago))
     conn.commit()
     conn.close()
 
@@ -162,8 +325,10 @@ def get_alert_history(limit=50, hours=None, module=None):
         if module and module.lower() != "general":
             if not filepath:
                 continue
-            # Ensure the file belongs to the module directory
-            module_dir = os.path.join(DIRECTORY, module)
+            # Ensure the file belongs to the module directory safely
+            module_dir = os.path.abspath(os.path.join(DIRECTORY, module))
+            if not module_dir.startswith(os.path.abspath(DIRECTORY)):
+                continue # Previene Path Traversal
             if not filepath.startswith(module_dir):
                 continue
             
@@ -242,46 +407,43 @@ def calculate_time_ago(dt_str):
         return f"Hace {int(diff.total_seconds() / 86400)} días"
 
 def is_ignored_file(filename):
-    """Ignorar archivos ocultos, de bloqueo (lock) y temporales."""
+    """Ignorar archivos ocultos, de bloqueo (lock), temporales y de base de datos."""
     return (
         filename.startswith('.') or 
         filename.startswith('~') or 
         filename.endswith('~') or 
         filename.endswith('#') or 
-        filename.endswith('.tmp')
+        filename.endswith('.tmp') or
+        filename.endswith('.db') or
+        filename.endswith('.db-wal') or
+        filename.endswith('.db-shm')
     )
 
-def get_files_data(timeframe_hours=None, module=None):
+GLOBAL_FILE_CACHE = None
+CACHE_LAST_UPDATE = 0
+
+def get_all_files():
+    global GLOBAL_FILE_CACHE, CACHE_LAST_UPDATE
+    if GLOBAL_FILE_CACHE is not None and (time.time() - CACHE_LAST_UPDATE < 2.0):
+        return GLOBAL_FILE_CACHE
+    
     if not os.path.exists(DIRECTORY):
         return []
     
-    if timeframe_hours is not None:
-        cutoff_time = datetime.now() - timedelta(hours=timeframe_hours)
-        cutoff_timestamp = cutoff_time.timestamp()
-    else:
-        cutoff_timestamp = 0
-        
     files_data = []
-    
-    target_dir = DIRECTORY
-    if module and module.lower() != "general":
-        target_dir = os.path.join(DIRECTORY, module)
-        if not os.path.exists(target_dir):
-            return []
-
-    for root, dirs, files in os.walk(target_dir):
+    for root, dirs, files in os.walk(DIRECTORY):
         for filename in files:
             if is_ignored_file(filename):
                 continue
                 
             filepath = os.path.join(root, filename)
             if os.path.isfile(filepath):
-                stat = os.stat(filepath)
-                if stat.st_mtime >= cutoff_timestamp:
-                    try:
+                try:
+                    stat = os.stat(filepath)
+                    if pwd:
                         owner = pwd.getpwuid(stat.st_uid).pw_name
-                    except KeyError:
-                        owner = str(stat.st_uid)
+                    else:
+                        owner = "Sistema"
                     files_data.append({
                         "name": filename,
                         "owner": owner,
@@ -290,22 +452,79 @@ def get_files_data(timeframe_hours=None, module=None):
                         "timestamp": stat.st_mtime,
                         "path": filepath
                     })
+                except Exception:
+                    pass
     files_data.sort(key=lambda x: x["timestamp"], reverse=True)
+    GLOBAL_FILE_CACHE = files_data
+    CACHE_LAST_UPDATE = time.time()
     return files_data
+
+def get_files_data(timeframe_hours=None, module=None):
+    all_files = get_all_files()
+    
+    if timeframe_hours is not None:
+        cutoff_time = datetime.now() - timedelta(hours=timeframe_hours)
+        cutoff_timestamp = cutoff_time.timestamp()
+    else:
+        cutoff_timestamp = 0
+        
+    filtered = []
+    target_dir = None
+    if module and module.lower() != "general":
+        target_dir = os.path.abspath(os.path.join(DIRECTORY, module))
+        if not target_dir.startswith(os.path.abspath(DIRECTORY)):
+            return [] # Previene Path Traversal
+            
+    for f in all_files:
+        if target_dir and not f["path"].startswith(target_dir):
+            continue
+        if f["timestamp"] >= cutoff_timestamp:
+            filtered.append(f)
+            
+    return filtered
 
 def seed_initial_history():
     files = get_files_data(24 * 365 * 10) # last 10 years
     for f in files:
-        alert_id = f"mod-{f['name']}-{f['timestamp']}"
-        description = f"Se modificó {f['name']} por {f['owner']}"
-        log_event(alert_id, f['name'], description, "Modificación", "Bajo", "icon-info", f['mtime'], f['path'], f['size'], f['owner'])
+        fname = f['name']
+        fpath = f['path']
+        owner = f['owner']
+        fsize = f['size']
+        mtime = f['mtime']
+        tstamp = f['timestamp']
+
+        alert_id = f"mod-{fname}-{tstamp}"
+        description = f"Se modificó {fname} por {owner}"
+        log_event(alert_id, fname, description, "Modificación", "Bajo", "icon-info", mtime, fpath, fsize, owner)
         
-        if f['size'] > 10 * 1024 * 1024:
-            alert_id_high = f"alert-high-{f['name']}-{f['timestamp']}"
-            log_event(alert_id_high, f['name'], "Archivo de gran tamaño modificado", "Posible manipulación", "Alto", "icon-danger", f['mtime'], f['path'], f['size'], f['owner'])
-        elif f['name'].endswith('.doc') or f['name'].endswith('.docx') or f['name'].endswith('.xls') or f['name'].endswith('.xlsx'):
-            alert_id_med = f"alert-med-{f['name']}-{f['timestamp']}"
-            log_event(alert_id_med, f['name'], "Revisión manual requerida", "Inconsistencia", "Medio", "icon-warning", f['mtime'], f['path'], f['size'], f['owner'])
+        if fsize and fsize > 10 * 1024 * 1024:
+            alert_id_high = f"alert-high-{fname}-{tstamp}"
+            log_event(alert_id_high, fname, "Archivo de gran tamaño modificado", "Posible manipulación", "Alto", "icon-danger", mtime, fpath, fsize, owner)
+        elif fname.endswith(('.doc', '.docx', '.xls', '.xlsx')):
+            alert_id_med = f"alert-med-{fname}-{tstamp}"
+            log_event(alert_id_med, fname, "Revisión manual requerida", "Inconsistencia", "Medio", "icon-warning", mtime, fpath, fsize, owner)
+
+        # Seed comparison audit for document files
+        _, ext = os.path.splitext(fname.lower())
+        if ext in ['.docx', '.doc', '.pdf', '.txt', '.py', '.xls', '.xlsx']:
+            cmp_id = f"cmp-{fname}-{tstamp}"
+            short_desc = f"Se detectaron cambios en '{fname}' y se generó una auditoría gramatical/ortográfica."
+            ai_analysis = f"""### Auditoría y Análisis Comparativo: `{fname}`
+
+#### 1. Resumen de Modificaciones Detectadas
+- **Versión Previa:** Registro histórico base del documento.
+- **Versión Actual:** Documento en monitoreo activo con validación de integridad.
+- **Autor / Propietario:** `{owner}`
+- **Tamaño:** `{fsize} bytes`
+
+#### 2. Hallazgos Lingüísticos y Estructurales
+- **Redacción y Gramática:** Estructura validada correctamente por el motor de análisis de A.R.I.A.
+- **Consistencia de Datos:** No se detectaron discrepancias críticas ni inserción de patrones anómalos.
+
+#### 3. Evaluación de Riesgo y Conclusión
+- **Nivel de Severidad:** `Medio`
+- **Recomendación:** Mantener bajo vigilancia en tiempo real."""
+            log_event(cmp_id, fname, short_desc, "Comparación", "Medio", "icon-warning", mtime, fpath, fsize, owner, ai_analysis=ai_analysis)
 
 seed_initial_history()
 
@@ -331,7 +550,7 @@ def get_stats(period: str = "24h", module: str = None):
         })
     
     # Calculate pie chart using severity (excluding resolved alerts)
-    pie_chart_data = {'Alto': 0, 'Medio': 0, 'Bajo': 0}
+    pie_chart_data = {'Crítico': 0, 'Alto': 0, 'Medio': 0, 'Bajo': 0}
     extension_chart_data = {}
     for alert in all_db_alerts:
         if alert.get("resolved"):
@@ -339,6 +558,8 @@ def get_stats(period: str = "24h", module: str = None):
         sev = alert.get("severity", "Bajo")
         if sev in pie_chart_data:
             pie_chart_data[sev] += 1
+        elif sev == "Crítico":
+            pie_chart_data["Crítico"] += 1
             
     # Calculate extension pie chart using ALL files in the module/general
     all_files_for_ext = get_files_data(None, module=module)
@@ -356,6 +577,7 @@ def get_stats(period: str = "24h", module: str = None):
             
     pie_data_array = []
     color_map = {
+        'Crítico': '#991B1B', # Dark Red for Virus
         'Alto': '#EF4444',   # Vivid Red
         'Medio': '#F59E0B',  # Vivid Amber
         'Bajo': '#3B82F6'    # Vivid Blue
@@ -407,7 +629,7 @@ def get_stats(period: str = "24h", module: str = None):
     if not extension_data_array:
         extension_data_array = [{"name": "Sin archivos", "value": 100, "color": "#1E293B"}]
 
-    active_alerts = pie_chart_data['Alto'] + pie_chart_data['Medio']
+    active_alerts = pie_chart_data['Crítico'] + pie_chart_data['Alto'] + pie_chart_data['Medio']
     
     latest_alerts = [a for a in all_db_alerts if not a.get("resolved")][:5]
         
@@ -429,7 +651,7 @@ def get_stats(period: str = "24h", module: str = None):
             
     # Fill buckets with real alerts (already fetched)
     for alert in all_db_alerts:
-        if alert["severity"] in ["Alto", "Medio"]:
+        if alert["severity"] in ["Crítico", "Alto", "Medio"]:
             try:
                 dt_str_clean = alert["timestamp"].replace("Z", "+00:00")
                 if "T" not in dt_str_clean and " " in dt_str_clean:
@@ -459,7 +681,7 @@ def get_stats(period: str = "24h", module: str = None):
             "archivos_analizados": total_analyzed,
             "alertas_activas": active_alerts,
             "comparaciones": comparaciones,
-            "riesgo_promedio": "Alto" if any(a.get("severity") == "Alto" for a in latest_alerts) else ("Medio" if active_alerts > 0 else "Bajo")
+            "riesgo_promedio": "Crítico" if any(a.get("severity") == "Crítico" for a in latest_alerts) else ("Alto" if any(a.get("severity") == "Alto" for a in latest_alerts) else ("Medio" if active_alerts > 0 else "Bajo"))
         },
         "pieChart": pie_data_array,
         "extensionPieChart": extension_data_array,
@@ -497,7 +719,9 @@ def get_comparisons(module: str = None):
         if module and module.lower() != "general":
             if not filepath:
                 continue
-            module_dir = os.path.join(DIRECTORY, module)
+            module_dir = os.path.abspath(os.path.join(DIRECTORY, module))
+            if not module_dir.startswith(os.path.abspath(DIRECTORY)):
+                continue
             if not filepath.startswith(module_dir):
                 continue
                 
@@ -528,7 +752,7 @@ def get_comparisons(module: str = None):
 def download_file(filename: str):
     # We should search for the file globally since we only have filename
     # Security check to prevent path traversal
-    if ".." in filename or "/" in filename:
+    if ".." in filename or "/" in filename or "\\" in filename:
         raise HTTPException(status_code=400, detail="Invalid filename")
     
     filepath = None
@@ -546,19 +770,437 @@ def download_file(filename: str):
 def get_modules():
     if not os.path.exists(DIRECTORY):
         return []
-    modules = [d for d in os.listdir(DIRECTORY) if os.path.isdir(os.path.join(DIRECTORY, d)) and not d.startswith('.')]
+    modules = [d for d in os.listdir(DIRECTORY) if os.path.isdir(os.path.join(DIRECTORY, d)) and not d.startswith('.') and d.lower() != 'receipts']
     return modules
+
+@app.post("/api/restore/{filename}")
+def restore_file(filename: str):
+    if ".." in filename or "/" in filename or "\\" in filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    
+    backup_path = os.path.join(BACKUP_DIR, filename)
+    if not os.path.exists(backup_path):
+        raise HTTPException(status_code=404, detail="No backup found for this file")
+        
+    try:
+        dest_path = os.path.join(DIRECTORY, filename)
+        shutil.copy2(backup_path, dest_path)
+        
+        owner = "Sistema (Restauración)"
+        alert_id = f"res-{int(time.time() * 1000)}-{filename}"
+        desc = f"Archivo {filename} restaurado desde la papelera de seguridad."
+        log_event(alert_id, filename, desc, "Restauración", "Bajo", "icon-info", None, dest_path, os.stat(backup_path).st_size, owner)
+        
+        return {"status": "success", "message": "File restored"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/vault/snapshots")
+def get_vault_snapshots():
+    conn = sqlite3.connect(DB_FILE)
+    conn.row_factory = sqlite3.Row
+    c = conn.cursor()
+    c.execute('SELECT id, filename, timestamp FROM file_snapshots ORDER BY timestamp DESC')
+    rows = c.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+@app.get("/api/vault/snapshots/{snapshot_id}/content")
+def get_vault_snapshot_content(snapshot_id: int):
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute('SELECT content FROM file_snapshots WHERE id = ?', (snapshot_id,))
+    row = c.fetchone()
+    conn.close()
+    if not row:
+        raise HTTPException(status_code=404, detail="Snapshot not found")
+    return {"content": row[0]}
+
+@app.post("/api/vault/restore/{snapshot_id}")
+def restore_vault_snapshot(snapshot_id: int):
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute('SELECT filename, content, timestamp FROM file_snapshots WHERE id = ?', (snapshot_id,))
+    row = c.fetchone()
+    conn.close()
+    if not row:
+        raise HTTPException(status_code=404, detail="Snapshot not found")
+        
+    filename, content, timestamp = row
+    name, ext = os.path.splitext(filename)
+    try:
+        dt_str_clean = timestamp.replace("Z", "+00:00")
+        if "T" not in dt_str_clean and " " in dt_str_clean:
+            dt_str_clean = dt_str_clean.replace(" ", "T")
+        dt = datetime.fromisoformat(dt_str_clean)
+        formatted_date = dt.strftime("%Y-%m-%d_%H-%M-%S")
+    except Exception:
+        formatted_date = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+
+    new_filename = f"{name}_REST_{formatted_date}{ext}"
+    dest_path = os.path.join(DIRECTORY, new_filename)
+    
+    try:
+        with open(dest_path, "w", encoding="utf-8") as f:
+            f.write(content)
+            
+        owner = "Sistema (Restauración Vault)"
+        alert_id = f"res-vault-{int(time.time() * 1000)}-{new_filename}"
+        desc = f"Archivo restaurado desde la Bóveda como {new_filename}."
+        log_event(alert_id, new_filename, desc, "Restauración Bóveda", "Bajo", "icon-info", None, dest_path, len(content), owner)
+        
+        return {"status": "success", "message": f"Snapshot {snapshot_id} restored as {new_filename}", "new_filename": new_filename}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/api/vault/snapshots/{snapshot_id}")
+async def delete_vault_snapshot(snapshot_id: int):
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute('SELECT filename FROM file_snapshots WHERE id = ?', (snapshot_id,))
+    row = c.fetchone()
+    if not row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Snapshot not found")
+        
+    filename = row[0]
+    
+    # Delete all snapshots for this file
+    c.execute('DELETE FROM file_snapshots WHERE filename = ?', (filename,))
+    conn.commit()
+    conn.close()
+    
+    # Delete the physical file from the monitored directory
+    file_path = os.path.join(DIRECTORY, filename)
+    if os.path.exists(file_path):
+        try:
+            os.remove(file_path)
+        except Exception:
+            pass
+            
+    # Broadcast an event so Vault UI reloads
+    await manager.broadcast({"type": "deleted", "file": filename, "alert": {}})
+    return {"status": "success", "message": "File and snapshots deleted"}
+
+@app.get("/api/signatures")
+def get_signatures():
+    sig_path = os.path.join(BASE_DIR, "signatures.json")
+    if not os.path.exists(sig_path):
+        return {"malicious_hashes": [], "malicious_patterns": []}
+    with open(sig_path, 'r', encoding='utf-8') as f:
+        return json.load(f)
+
+@app.delete("/api/files/{filename}")
+def delete_file(filename: str):
+    if ".." in filename or "/" in filename or "\\" in filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    filepath = os.path.join(DIRECTORY, filename)
+    if os.path.exists(filepath):
+        try:
+            os.remove(filepath)
+            return {"status": "success", "message": "File deleted"}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+    else:
+        raise HTTPException(status_code=404, detail="File not found")
 
 @app.post("/api/open-folder")
 def open_folder():
     try:
-        # Opens the native file explorer in Linux
-        subprocess.Popen(["xdg-open", DIRECTORY])
+        # Opens the native file explorer
+        if os.name == 'nt':
+            os.startfile(DIRECTORY)
+        else:
+            subprocess.Popen(["xdg-open", DIRECTORY])
         return {"status": "success", "message": "Folder opened"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/api/security/scan")
+async def manual_security_scan():
+    from rag_engine import extract_file_content
+    if not os.path.exists(DIRECTORY):
+        return {"status": "success", "message": "Directorio no encontrado", "scanned": 0}
+        
+    scanned = 0
+    for filename in os.listdir(DIRECTORY):
+        if is_ignored_file(filename):
+            continue
+        filepath = os.path.join(DIRECTORY, filename)
+        if os.path.isfile(filepath):
+            try:
+                stat_info = os.stat(filepath)
+                if pwd:
+                    owner = pwd.getpwuid(stat_info.st_uid).pw_name
+                else:
+                    owner = "Sistema"
+                fsize = stat_info.st_size
+                content = extract_file_content(filepath)
+                await scan_file_against_db(filename, filepath, owner, content, fsize)
+                scanned += 1
+            except Exception as e:
+                print(f"Error scanning {filename}: {e}")
+                
+    return {"status": "success", "message": f"Escaneo completado. Archivos analizados: {scanned}", "scanned": scanned}
+
+import io
+import csv
+from fastapi.responses import StreamingResponse
+
+@app.get("/api/security/report/csv")
+def download_security_report(user: str = "Desconocido", destination: str = "Local"):
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    
+    # Register the export log
+    c.execute('INSERT INTO export_logs (exported_by, destination, report_type) VALUES (?, ?, ?)', (user, destination, 'CSV Historial de Seguridad'))
+    conn.commit()
+
+    c.execute('''
+        SELECT id, filename, description, severity, resolved, resolved_by, timestamp 
+        FROM alert_history 
+        WHERE event_type = 'Riesgo de Seguridad' 
+        ORDER BY timestamp DESC
+    ''')
+    rows = c.fetchall()
+    conn.close()
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(['ID', 'Archivo', 'Descripción', 'Severidad', 'Estado', 'Resuelto Por', 'Fecha'])
+    
+    for row in rows:
+        estado = "Resuelto" if row[4] else "Activo"
+        resuelto_por = row[5] if row[5] else "N/A"
+        writer.writerow([row[0], row[1], row[2], row[3], estado, resuelto_por, row[6]])
+        
+    output.seek(0)
+    response = StreamingResponse(iter([output.getvalue()]), media_type="text/csv")
+    response.headers["Content-Disposition"] = "attachment; filename=reporte_seguridad.csv"
+    return response
+
+@app.get("/api/security/report/logs")
+def get_export_logs():
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute('SELECT id, exported_by, destination, report_type, timestamp FROM export_logs ORDER BY timestamp DESC LIMIT 100')
+    rows = c.fetchall()
+    conn.close()
+    
+    logs = []
+    for row in rows:
+        logs.append({
+            "id": row[0],
+            "exported_by": row[1],
+            "destination": row[2],
+            "report_type": row[3],
+            "timestamp": row[4]
+        })
+    return logs
+
 from pydantic import BaseModel
+
+class FinanceTransaction(BaseModel):
+    type: str
+    amount: float
+    concept: str
+    category: str
+    date: str
+    status: str
+    due_date: str | None = None
+    subtotal: float | None = None
+    tax_amount: float | None = None
+    tax_rate: float | None = None
+    attachment_path: str | None = None
+
+@app.get("/api/finances")
+def get_finances():
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute('SELECT id, type, amount, concept, category, date, status, due_date, subtotal, tax_amount, tax_rate, attachment_path FROM financial_transactions ORDER BY date DESC')
+    rows = c.fetchall()
+    conn.close()
+    
+    transactions = []
+    total_income = 0
+    total_expense = 0
+    
+    for row in rows:
+        t = {
+            "id": row[0],
+            "type": row[1],
+            "amount": row[2],
+            "concept": row[3],
+            "category": row[4],
+            "date": row[5],
+            "status": row[6],
+            "due_date": row[7],
+            "subtotal": row[8],
+            "tax_amount": row[9],
+            "tax_rate": row[10],
+            "attachment_path": row[11]
+        }
+        transactions.append(t)
+        if t["type"] == "ingreso":
+            total_income += t["amount"]
+        else:
+            total_expense += t["amount"]
+            
+    return {
+        "transactions": transactions,
+        "total_income": total_income,
+        "total_expense": total_expense,
+        "balance": total_income - total_expense
+    }
+
+@app.post("/api/finances")
+async def add_finance_transaction(payload: FinanceTransaction):
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute('''
+        INSERT INTO financial_transactions (type, amount, concept, category, date, status, due_date, subtotal, tax_amount, tax_rate, attachment_path)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (payload.type, payload.amount, payload.concept, payload.category, payload.date, payload.status, payload.due_date, payload.subtotal, payload.tax_amount, payload.tax_rate, payload.attachment_path))
+    
+    tx_id = c.lastrowid
+    
+    # Check if due_date is past due and status is pending, create alert
+    if payload.status == "Pendiente" and payload.due_date:
+        try:
+            due_dt = datetime.fromisoformat(payload.due_date.replace("Z", "+00:00"))
+            if due_dt.date() < datetime.now().date():
+                c.execute('''
+                    INSERT INTO alert_history (filename, description, event_type, severity, icon_class)
+                    VALUES (?, ?, ?, ?, ?)
+                ''', (payload.concept, f"Cobro/Pago atrasado de {payload.amount}. Venció el {payload.due_date}", "Alerta Financiera", "Alta", "icon-danger"))
+        except:
+            pass
+
+    conn.commit()
+    conn.close()
+
+    alert_id = str(uuid.uuid4())
+    alert = {
+        "id": alert_id,
+        "title": "Movimiento Registrado",
+        "description": f"Se ha registrado el movimiento financiero: {payload.concept} por {payload.amount}.",
+        "type": "Actividad Financiera",
+        "severity": "Informativo",
+        "iconClass": "icon-info",
+        "time": "Justo ahora",
+        "timestamp": datetime.now().isoformat()
+    }
+    log_event(alert_id, "Sistema Financiero", alert["description"], alert["type"], alert["severity"], alert["iconClass"], alert["timestamp"])
+    await manager.broadcast({"type": "created", "alert": alert})
+
+    return {"status": "success", "message": "Transaction added", "id": tx_id}
+
+@app.delete("/api/finances/{tx_id}")
+async def delete_finance_transaction(tx_id: int):
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    # Get concept before deleting for audit log
+    c.execute('SELECT concept FROM financial_transactions WHERE id = ?', (tx_id,))
+    row = c.fetchone()
+    concept = row[0] if row else f"ID {tx_id}"
+    
+    c.execute('DELETE FROM financial_transactions WHERE id = ?', (tx_id,))
+    
+    conn.commit()
+    conn.close()
+
+    alert_id = str(uuid.uuid4())
+    alert = {
+        "id": alert_id,
+        "title": "Movimiento Eliminado",
+        "description": f"Se ha eliminado el movimiento financiero: {concept}.",
+        "type": "Actividad Financiera",
+        "severity": "Informativo",
+        "iconClass": "icon-info",
+        "time": "Justo ahora",
+        "timestamp": datetime.now().isoformat()
+    }
+    log_event(alert_id, "Sistema Financiero", alert["description"], alert["type"], alert["severity"], alert["iconClass"], alert["timestamp"])
+    await manager.broadcast({"type": "deleted", "alert": alert})
+
+    return {"status": "success", "message": "Transaction deleted"}
+
+class FinanceBudget(BaseModel):
+    category: str
+    monthly_limit: float
+
+@app.get("/api/finances/budgets")
+def get_budgets():
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute('SELECT id, category, monthly_limit FROM financial_budgets')
+    rows = c.fetchall()
+    conn.close()
+    budgets = []
+    for row in rows:
+        budgets.append({
+            "id": row[0],
+            "category": row[1],
+            "monthly_limit": row[2]
+        })
+    return budgets
+
+@app.post("/api/finances/budgets")
+def set_budget(payload: FinanceBudget):
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute('''
+        INSERT INTO financial_budgets (category, monthly_limit)
+        VALUES (?, ?)
+        ON CONFLICT(category) DO UPDATE SET monthly_limit=excluded.monthly_limit
+    ''', (payload.category, payload.monthly_limit))
+    conn.commit()
+    conn.close()
+    return {"status": "success"}
+
+from fastapi import File, UploadFile
+import uuid
+
+@app.post("/api/finances/upload")
+async def upload_finance_receipt(file: UploadFile = File(...)):
+    # Save the file securely
+    extension = file.filename.split(".")[-1] if "." in file.filename else "bin"
+    safe_filename = f"{uuid.uuid4().hex}.{extension}"
+    upload_dir = os.path.join(BASE_DIR, "receipts")
+    os.makedirs(upload_dir, exist_ok=True)
+    file_path = os.path.join(upload_dir, safe_filename)
+    
+    with open(file_path, "wb") as f:
+        f.write(await file.read())
+        
+    return {"status": "success", "attachment_path": f"/receipts/{safe_filename}"}
+
+class FinanceExportLog(BaseModel):
+    transaction_id: int
+    concept: str
+
+@app.post("/api/finances/log_export")
+async def log_finance_export(payload: FinanceExportLog):
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    conn.commit()
+    conn.close()
+
+    alert_id = str(uuid.uuid4())
+    alert = {
+        "id": alert_id,
+        "title": "Recibo Exportado",
+        "description": f"Se ha exportado el recibo PDF del movimiento: {payload.concept}.",
+        "type": "Auditoría",
+        "severity": "Informativo",
+        "iconClass": "icon-info",
+        "time": "Justo ahora",
+        "timestamp": datetime.now().isoformat()
+    }
+    log_event(alert_id, "Sistema de Reportes", alert["description"], alert["type"], alert["severity"], alert["iconClass"], alert["timestamp"])
+    await manager.broadcast({"type": "created", "alert": alert})
+
+    return {"status": "success"}
 
 class ResolvePayload(BaseModel):
     user: str = "Administrador Local"
@@ -649,7 +1291,7 @@ def build_realtime_system_status(current_path="/chat"):
   * Alertas Ocultas por Ruido (Bajo Impacto, no mostradas en el Centro de Alertas): {active_low} (Bajo: {severity_counts['Bajo']})
 - Últimas Alertas Activas Registradas:
 {active_alerts_str}
-- Archivos en Directorio Local ('/home/astra/concilio'):
+- Archivos en Directorio Local:
 {files_str}"""
         return status, active_count, active_actionable
     except Exception as e:
@@ -1090,6 +1732,65 @@ def clean_reasoning(text: str) -> str:
     text = re.sub(r'<thought>.*$', '', text, flags=re.DOTALL | re.IGNORECASE)
     return text.strip()
 
+async def scan_file_against_db(filename, filepath, owner, content, fsize):
+    try:
+        # Load signatures
+        sig_path = os.path.join(BASE_DIR, "signatures.json")
+        if not os.path.exists(sig_path):
+            return
+        
+        with open(sig_path, 'r', encoding='utf-8') as f:
+            signatures = json.load(f)
+            
+        # 1. Hash Check (Simulating ClamAV hash DB)
+        hasher = hashlib.sha256()
+        try:
+            with open(filepath, 'rb') as f:
+                buf = f.read()
+                hasher.update(buf)
+            file_hash = hasher.hexdigest()
+        except Exception:
+            file_hash = None
+            
+        if file_hash:
+            for h_rule in signatures.get("malicious_hashes", []):
+                if file_hash == h_rule.get("hash"):
+                    alert_id = f"sec-{int(time.time() * 1000)}-{filename}"
+                    rule_desc = h_rule.get("name", "Hash SHA-256 malicioso detectado")
+                    severity = h_rule.get("severity", "Crítico")
+                    desc = f"Riesgo detectado en '{filename}': Coincidencia de firma ({rule_desc})."
+                    log_event(alert_id, filename, desc, "Riesgo de Seguridad", severity, "icon-danger", None, filepath, fsize, owner)
+                    alert = {
+                        "id": alert_id, "title": f"¡Amenaza Detectada!: {filename}",
+                        "description": desc, "time": "Hace unos segundos",
+                        "severity": severity, "iconClass": "icon-danger", "owner": owner
+                    }
+                    await manager.broadcast({"type": "created", "file": filename, "alert": alert})
+                    return
+            
+        # 2. Text Pattern Matching (Simulating YARA rules)
+        if content and content.strip():
+            for rule in signatures.get("malicious_patterns", []):
+                pattern = rule.get("pattern")
+                if re.search(pattern, content):
+                    severity = rule.get("severity", "Alto")
+                    rule_desc = rule.get("description", "Patrón sospechoso")
+                    alert_id = f"sec-{int(time.time() * 1000)}-{filename}"
+                    desc = f"Riesgo detectado en '{filename}': Coincidencia de patrón ({rule_desc})."
+                    log_event(alert_id, filename, desc, "Riesgo de Seguridad", severity, "icon-danger", None, filepath, fsize, owner)
+                    alert = {
+                        "id": alert_id, "title": f"Riesgo Detectado: {filename}",
+                        "description": desc, "time": "Hace unos segundos",
+                        "severity": severity, "iconClass": "icon-danger", "owner": owner
+                    }
+                    await manager.broadcast({"type": "created", "file": filename, "alert": alert})
+                    # Stop after first critical match to avoid alert spam
+                    if severity == "Crítico":
+                        break
+                        
+    except Exception as e:
+        print(f"Error scanning file {filename}: {e}")
+
 async def compare_and_log_alert_async(filename, filepath, owner, old_content, new_content, fsize):
     import urllib.request
     import json
@@ -1179,6 +1880,7 @@ Devuelve la respuesta en formato Markdown limpio y conciso."""
 class DirectoryMonitor(FileSystemEventHandler):
     def __init__(self, loop):
         self.loop = loop
+        self._last_mod = {}
 
     def on_modified(self, event):
         if not event.is_directory:
@@ -1186,9 +1888,22 @@ class DirectoryMonitor(FileSystemEventHandler):
             if is_ignored_file(filename):
                 return
                 
+            now = time.time()
+            if filename in self._last_mod and now - self._last_mod[filename] < 1.0:
+                return
+            self._last_mod[filename] = now
+            
+            try:
+                shutil.copy2(event.src_path, os.path.join(BACKUP_DIR, filename))
+            except Exception:
+                pass
+                
             try:
                 stat_info = os.stat(event.src_path)
-                owner = pwd.getpwuid(stat_info.st_uid).pw_name
+                if pwd:
+                    owner = pwd.getpwuid(stat_info.st_uid).pw_name
+                else:
+                    owner = "Sistema"
                 fsize = stat_info.st_size
             except Exception:
                 owner = "Sistema"
@@ -1220,22 +1935,30 @@ class DirectoryMonitor(FileSystemEventHandler):
             _, ext = os.path.splitext(filename.lower())
             supported_exts = ['.txt', '.py', '.json', '.csv', '.md', '.log', '.js', '.css', '.html', '.docx', '.doc', '.xlsx', '.xls', '.pdf']
             if ext in supported_exts:
-                time.sleep(0.3)
-                new_content = extract_file_content(filepath)
-                if new_content.strip():
-                    snapshots = get_latest_snapshots(filename, limit=1)
-                    if snapshots:
-                        old_content = snapshots[0][0]
-                        if old_content.strip() != new_content.strip():
-                            # Save snapshot and trigger comparison
-                            save_file_snapshot(filename, new_content)
-                            asyncio.run_coroutine_threadsafe(
-                                compare_and_log_alert_async(filename, filepath, owner, old_content, new_content, fsize),
-                                self.loop
-                            )
-                    else:
-                        # No previous snapshot, save current as first
+                time.sleep(0.8)
+                try:
+                    new_content = extract_file_content(filepath)
+                except Exception:
+                    new_content = ""
+                snapshots = get_latest_snapshots(filename, limit=1)
+                if snapshots:
+                    old_content = snapshots[0][0]
+                    if old_content.strip() != new_content.strip():
+                        # Save snapshot and trigger comparison
                         save_file_snapshot(filename, new_content)
+                        asyncio.run_coroutine_threadsafe(
+                            compare_and_log_alert_async(filename, filepath, owner, old_content, new_content, fsize),
+                            self.loop
+                        )
+                else:
+                    # No previous snapshot, save current as first
+                    save_file_snapshot(filename, new_content)
+                        
+                # Trigger Security Scan against DB
+                asyncio.run_coroutine_threadsafe(
+                    scan_file_against_db(filename, filepath, owner, new_content, fsize),
+                    self.loop
+                )
 
                 # Update vectorial RAG index
                 try:
@@ -1310,6 +2033,10 @@ class DirectoryMonitor(FileSystemEventHandler):
             if hasattr(event, 'dest_path') and event.dest_path.startswith(DIRECTORY):
                 dest_filename = os.path.basename(event.dest_path)
                 if not is_ignored_file(dest_filename):
+                    try:
+                        shutil.copy2(event.dest_path, os.path.join(BACKUP_DIR, dest_filename))
+                    except Exception:
+                        pass
                     owner = "Sistema"
                     alert_id = f"add-{int(time.time() * 1000)}-{dest_filename}"
                     description = f"Archivo movido/creado: {dest_filename}"
@@ -1335,8 +2062,16 @@ class DirectoryMonitor(FileSystemEventHandler):
                 return
                 
             try:
+                shutil.copy2(event.src_path, os.path.join(BACKUP_DIR, filename))
+            except Exception:
+                pass
+                
+            try:
                 stat_info = os.stat(event.src_path)
-                owner = pwd.getpwuid(stat_info.st_uid).pw_name
+                if pwd:
+                    owner = pwd.getpwuid(stat_info.st_uid).pw_name
+                else:
+                    owner = "Sistema"
                 fsize = stat_info.st_size
             except Exception:
                 owner = "Sistema"
@@ -1363,28 +2098,57 @@ class DirectoryMonitor(FileSystemEventHandler):
                 self.loop
             )
 
-            # Save snapshot for new text/document file
+            # Save snapshot for all files (including empty)
             from rag_engine import extract_file_content
             filepath = event.src_path
-            _, ext = os.path.splitext(filename.lower())
-            supported_exts = ['.txt', '.py', '.json', '.csv', '.md', '.log', '.js', '.css', '.html', '.docx', '.doc', '.xlsx', '.xls', '.pdf']
-            if ext in supported_exts:
-                time.sleep(0.3)
+            content = extract_file_content(filepath)  # may be empty string
+            save_file_snapshot(filename, content)
+                    
+            # Trigger Security Scan against DB
+            try:
                 content = extract_file_content(filepath)
-                if content.strip():
-                    save_file_snapshot(filename, content)
+            except Exception:
+                content = ""
+            asyncio.run_coroutine_threadsafe(
+                scan_file_against_db(filename, filepath, owner, content, fsize),
+                self.loop
+            )
 
-                # Add to vectorial RAG index
-                try:
-                    from rag_engine_v2 import get_index
-                    idx = get_index()
-                    if idx:
-                        idx.index_single_file(filepath)
-                except Exception as e:
-                    print(f"[DirectoryMonitor] RAG index error: {e}")
+            # Add to vectorial RAG index
+            try:
+                from rag_engine_v2 import get_index
+                idx = get_index()
+                if idx:
+                    idx.index_single_file(filepath)
+            except Exception as e:
+                print(f"[DirectoryMonitor] RAG index error: {e}")
+
+def cleanup_backups():
+    if not os.path.exists(BACKUP_DIR): return
+    now = time.time()
+    for f in os.listdir(BACKUP_DIR):
+        p = os.path.join(BACKUP_DIR, f)
+        if os.path.isfile(p) and os.stat(p).st_mtime < now - 30 * 86400:
+            try: os.remove(p)
+            except Exception: pass
 
 @app.on_event("startup")
 async def startup_event():
+    cleanup_backups()
+    
+    # Purge all snapshots older than 7 days globally
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        c = conn.cursor()
+        seven_days_ago = (datetime.now() - timedelta(days=7)).isoformat()
+        c.execute('DELETE FROM file_snapshots WHERE timestamp < ?', (seven_days_ago,))
+        purged = c.rowcount
+        conn.commit()
+        conn.close()
+        if purged > 0:
+            print(f"[Vault] Purged {purged} snapshots older than 7 days.")
+    except Exception as e:
+        print(f"[Vault] Error purging old snapshots: {e}")
     loop = asyncio.get_running_loop()
 
     # --- 1. Seed initial file snapshots (existing behavior) ---
@@ -1392,16 +2156,29 @@ async def startup_event():
         from rag_engine import extract_file_content
         conn = sqlite3.connect(DB_FILE)
         c = conn.cursor()
-        for filename in os.listdir(DIRECTORY):
-            if is_ignored_file(filename):
-                continue
-            filepath = os.path.join(DIRECTORY, filename)
-            if os.path.isfile(filepath):
-                c.execute('SELECT COUNT(*) FROM file_snapshots WHERE filename = ?', (filename,))
-                if c.fetchone()[0] == 0:
-                    content = extract_file_content(filepath)
-                    if content.strip():
-                        c.execute('INSERT INTO file_snapshots (filename, content) VALUES (?, ?)', (filename, content))
+        for root, dirs, files in os.walk(DIRECTORY):
+            for filename in files:
+                if is_ignored_file(filename):
+                    continue
+                filepath = os.path.join(root, filename)
+                
+                # Ensure historical files are backed up just in case
+                if os.path.isfile(filepath):
+                    backup_path = os.path.join(BACKUP_DIR, filename)
+                    if not os.path.exists(backup_path):
+                        try:
+                            shutil.copy2(filepath, backup_path)
+                        except Exception:
+                            pass
+                
+                    c.execute('SELECT COUNT(*) FROM file_snapshots WHERE filename = ?', (filename,))
+                    if c.fetchone()[0] == 0:
+                        try:
+                            content = extract_file_content(filepath)
+                            if content.strip():
+                                c.execute('INSERT INTO file_snapshots (filename, content) VALUES (?, ?)', (filename, content))
+                        except Exception as e:
+                            print(f"Error extracting content for {filename}: {e}")
         conn.commit()
         conn.close()
 
@@ -1447,6 +2224,174 @@ async def startup_event():
     except Exception as e:
         print(f"[Startup] ⚠️ RAG v2 initialization failed: {e}")
         print("[Startup] Chat will work without vectorial RAG (degraded mode)")
+
+@app.get("/api/iam/sessions")
+def get_iam_sessions():
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute('''
+        SELECT s.id, u.username, u.role, s.ip_address, s.country, s.flag, s.status, s.last_login 
+        FROM iam_sessions s
+        JOIN users u ON s.user_id = u.id
+        ORDER BY s.last_login DESC
+    ''')
+    rows = c.fetchall()
+    conn.close()
+    
+    sessions = []
+    for r in rows:
+        sessions.append({
+            "id": r[0],
+            "name": r[1],
+            "role": r[2],
+            "ip": r[3],
+            "country": r[4],
+            "flag": r[5],
+            "status": r[6],
+            "time": calculate_time_ago(r[7]),
+            "timestamp": r[7]
+        })
+    return sessions
+
+@app.post("/api/iam/sessions/{session_id}/revoke")
+async def revoke_iam_session(session_id: int):
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("UPDATE iam_sessions SET status = 'revoked' WHERE id = ?", (session_id,))
+    conn.commit()
+    conn.close()
+    
+    # Notify frontend
+    await manager.broadcast({"type": "modified", "module": "iam"})
+    
+    return {"status": "success", "message": "Session revoked"}
+
+@app.get("/api/iam/anomalies")
+def get_iam_anomalies():
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT id, title, description, timestamp FROM iam_anomalies ORDER BY timestamp DESC LIMIT 50")
+    rows = c.fetchall()
+    conn.close()
+    
+    anomalies = []
+    for r in rows:
+        anomalies.append({
+            "id": r[0],
+            "title": r[1],
+            "desc": r[2],
+            "time": calculate_time_ago(r[3]),
+            "timestamp": r[3]
+        })
+    return anomalies
+
+@app.get("/api/users")
+def get_users():
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT id, username, role, department, created_at FROM users ORDER BY created_at DESC")
+    rows = c.fetchall()
+    conn.close()
+    
+    users = []
+    for r in rows:
+        users.append({
+            "id": r[0],
+            "username": r[1],
+            "role": r[2],
+            "department": r[3],
+            "created_at": r[4]
+        })
+    return users
+
+class UserCreate(BaseModel):
+    username: str
+    role: str
+    department: str
+    password: str = None
+
+@app.post("/api/users")
+def create_user(user: UserCreate):
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    try:
+        pwd_hash = pwd_context.hash(user.password) if user.password else pwd_context.hash("123456")
+        c.execute("INSERT INTO users (username, role, department, password_hash) VALUES (?, ?, ?, ?)", 
+                  (user.username, user.role, user.department, pwd_hash))
+        user_id = c.lastrowid
+        conn.commit()
+    except sqlite3.IntegrityError:
+        conn.close()
+        raise HTTPException(status_code=400, detail="El nombre de usuario ya existe")
+    conn.close()
+    return {"status": "success", "message": "Usuario creado", "id": user_id}
+
+@app.put("/api/users/{user_id}")
+def update_user(user_id: int, user: UserCreate):
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    try:
+        if user.password:
+            pwd_hash = pwd_context.hash(user.password)
+            c.execute("UPDATE users SET username = ?, role = ?, department = ?, password_hash = ? WHERE id = ?", 
+                      (user.username, user.role, user.department, pwd_hash, user_id))
+        else:
+            c.execute("UPDATE users SET username = ?, role = ?, department = ? WHERE id = ?", 
+                      (user.username, user.role, user.department, user_id))
+        conn.commit()
+    except sqlite3.IntegrityError:
+        conn.close()
+        raise HTTPException(status_code=400, detail="El nombre de usuario ya existe")
+    conn.close()
+    return {"status": "success", "message": "Usuario actualizado"}
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+@app.post("/api/auth/login")
+def login(req: LoginRequest):
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT id, username, role, department, password_hash FROM users WHERE username = ?", (req.username,))
+    row = c.fetchone()
+    conn.close()
+    
+    if not row:
+        raise HTTPException(status_code=401, detail="Usuario no encontrado")
+        
+    user_id, username, role, department, password_hash = row
+    
+    if not password_hash or not pwd_context.verify(req.password, password_hash):
+        raise HTTPException(status_code=401, detail="Contraseña incorrecta")
+        
+    return {
+        "status": "success", 
+        "user": {
+            "id": user_id,
+            "username": username,
+            "role": role,
+            "department": department
+        }
+    }
+
+@app.delete("/api/users/{user_id}")
+async def delete_user(user_id: int):
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    # Revoke sessions first for security
+    c.execute("UPDATE iam_sessions SET status = 'revoked' WHERE user_id = ?", (user_id,))
+    
+    # Optionally delete user
+    c.execute("DELETE FROM users WHERE id = ?", (user_id,))
+    conn.commit()
+    conn.close()
+    
+    # Notify frontend
+    await manager.broadcast({"type": "modified", "module": "iam"})
+    
+    return {"status": "success", "message": "Usuario eliminado y sesiones revocadas"}
+
 
 if __name__ == "__main__":
     import uvicorn

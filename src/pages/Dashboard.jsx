@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, Link } from 'react-router-dom';
 import Header from '../components/Header';
 import MetricCard from '../components/MetricCard';
 import AlertsPieChart from '../components/AlertsPieChart';
@@ -7,7 +7,7 @@ import AlertsLineChart from '../components/AlertsLineChart';
 import LatestAlerts from '../components/LatestAlerts';
 import AlertCategories from '../components/AlertCategories';
 import CategoryModal from '../components/CategoryModal';
-import { AlertTriangle, Info, X } from 'lucide-react';
+import { AlertTriangle, Info, X, ShieldAlert, ShieldCheck, DollarSign } from 'lucide-react';
 
 function Dashboard() {
   const [data, setData] = useState(null);
@@ -15,6 +15,7 @@ function Dashboard() {
   const [timeframe, setTimeframe] = useState('24h');
   const { module } = useParams();
   const ws = useRef(null);
+  const fetchRef = useRef(null);
 
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -37,6 +38,10 @@ function Dashboard() {
   }, [timeframe, module]);
 
   useEffect(() => {
+    fetchRef.current = fetchData;
+  }, [fetchData]);
+
+  useEffect(() => {
     fetchData();
   }, [fetchData]);
 
@@ -53,7 +58,7 @@ function Dashboard() {
         try {
           const message = JSON.parse(event.data);
           if (['modified', 'deleted', 'created', 'resolved'].includes(message.type)) {
-            fetchData();
+            fetchRef.current?.();
           }
         } catch (e) {
           console.error('Error parseando mensaje WS', e);
@@ -75,7 +80,7 @@ function Dashboard() {
       if (wsInstance) wsInstance.close();
       if (reconnectTimeout) clearTimeout(reconnectTimeout);
     };
-  }, [fetchData]);
+  }, []);
 
   // Handlers for interactive drill-down
   const handleSliceClick = (entry, chartTitle) => {
@@ -105,6 +110,13 @@ function Dashboard() {
     setModalData(filtered);
     setIsModalOpen(true);
   };
+
+  // Calculate Health Status
+  const cyberThreats = allAlerts.filter(a => !a.resolved && a.type === 'Riesgo de Seguridad');
+  const financeIssues = allAlerts.filter(a => !a.resolved && (a.type === 'Eliminado' || a.type === 'Modificación'));
+  
+  const isCyberHealthy = cyberThreats.length === 0;
+  const isFinanceHealthy = financeIssues.length === 0;
 
   if (!data) return <div className="loading-state">Cargando métricas...</div>;
 
@@ -141,8 +153,34 @@ function Dashboard() {
           value={data.metrics.riesgo_promedio} 
           trend="" 
           trendUp={false} 
-          valueColor={data.metrics.riesgo_promedio === 'Bajo' ? 'var(--accent-success)' : (data.metrics.riesgo_promedio === 'Medio' ? 'var(--accent-warning)' : 'var(--accent-danger)')}
+          valueColor={
+            data.metrics.riesgo_promedio === 'Bajo' ? 'var(--accent-success)' : 
+            (data.metrics.riesgo_promedio === 'Medio' ? 'var(--accent-warning)' : 
+            (data.metrics.riesgo_promedio === 'Crítico' ? '#991B1B' : 'var(--accent-danger)'))
+          }
         />
+      </div>
+
+      <div className="health-cards-container">
+        <Link to="/ciberseguridad" className={`health-card ${isCyberHealthy ? 'health-good' : 'health-danger'}`}>
+          <div className="health-icon">
+            {isCyberHealthy ? <ShieldCheck size={32} /> : <ShieldAlert size={32} className="pulse-danger" />}
+          </div>
+          <div className="health-info">
+            <h3>Ciberseguridad</h3>
+            <p>{isCyberHealthy ? 'Sistema Protegido' : `${cyberThreats.length} Amenazas Activas`}</p>
+          </div>
+        </Link>
+        
+        <Link to="/finanzas/dashboard" className={`health-card ${isFinanceHealthy ? 'health-good' : 'health-warning'}`}>
+          <div className="health-icon">
+            {isFinanceHealthy ? <DollarSign size={32} /> : <AlertTriangle size={32} className="pulse-warning" />}
+          </div>
+          <div className="health-info">
+            <h3>Finanzas</h3>
+            <p>{isFinanceHealthy ? 'Sin anomalías' : `${financeIssues.length} Movimientos Pendientes`}</p>
+          </div>
+        </Link>
       </div>
 
       <div className="middle-grid">
