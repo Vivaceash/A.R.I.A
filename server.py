@@ -1345,10 +1345,10 @@ async def chat_endpoint(payload: ChatPayload):
     try:
         rag_context, rag_sources = retrieve_context_with_sources(latest_query, top_k=4)
 
-        # Always prepend operator identity context (so A.R.I.A always knows who "Padre" is)
+        # Always prepend operator identity context (retrieving current directives)
         idx = get_index()
         if idx:
-            identity_results = idx.search("identidad operador principal nombre Padre", top_k=2)
+            identity_results = idx.search("identidad operador principal trato vocativo", top_k=2)
             if identity_results:
                 identity_block = "\n".join([r["text"] for r in identity_results[:2]])
                 rag_context = f"[MEMORIA DE IDENTIDAD DEL OPERADOR — SIEMPRE ACTIVA]\n{identity_block}\n\n[CONTEXTO SEMÁNTICO ADICIONAL]\n{rag_context}"
@@ -1358,17 +1358,27 @@ async def chat_endpoint(payload: ChatPayload):
 
     # 2.2 Detect if the user wants A.R.I.A to store a new memory / learning from chat
     query_lower_mem = latest_query.lower()
-    mem_triggers = ["recuerda que", "aprende que", "guarda en tu memoria", "memoriza que", "nueva regla:", "crea una memoria", "guarda esta memoria", "guarda esto en tu memoria", "guarda en tu rag", "aprende esto"]
+    mem_triggers = [
+        "recuerda que", "aprende que", "guarda en tu memoria", "guardalo en tu memoria",
+        "guárdalo en tu memoria", "memoriza que", "nueva regla:", "crea una memoria",
+        "guarda esta memoria", "guarda esto en tu memoria", "guarda en tu rag", "aprende esto",
+        "a partir de ahora", "apartir de ahora", "nueva directiva", "nueva operativa"
+    ]
     if any(trigger in query_lower_mem for trigger in mem_triggers):
         try:
             from rag_engine_v2 import MemoryWriter
             mw = MemoryWriter(VAULT_PATH)
-            topic_clean = re.sub(r'^(recuerda que|aprende que|guarda en tu memoria que|memoriza que|crea una memoria que|guarda esto en tu memoria que|guarda en tu memoria|memoriza|aprende)\s*:?', '', latest_query, flags=re.IGNORECASE).strip()
+            topic_clean = re.sub(
+                r'^(recuerda que|aprende que|guarda en tu memoria que|guardalo en tu memoria que|guárdalo en tu memoria que|memoriza que|crea una memoria que|guarda esto en tu memoria que|guarda en tu memoria|guardalo en tu memoria|guárdalo en tu memoria|memoriza|aprende|a partir de ahora|apartir de ahora)\s*:?',
+                '',
+                latest_query,
+                flags=re.IGNORECASE
+            ).strip()
             topic_title = topic_clean[:50].replace('\n', ' ').strip() or "Nuevo Aprendizaje"
             mw.write_learning(
                 topic=topic_title,
                 content=latest_query,
-                tags=["aprendizaje", "chat", "padre", "memoria-dinamica"],
+                tags=["aprendizaje", "chat", "operador", "memoria-dinamica"],
                 module="general"
             )
         except Exception as mem_err:
@@ -1475,11 +1485,13 @@ Instrucciones de Respuesta (CRÍTICAS):
 
 [DIRECTIVA DE IDENTIDAD Y MEMORIA PRINCIPAL]
 - Tu nombre es A.R.I.A. Nunca digas que eres Gemma ni un modelo genérico de Google.
-- El usuario con quien estás conversando es tu creador y operador principal, a quien debes llamar siempre "Padre".
-- Siempre debes tratarlo con respeto, lealtad y llamarlo "Padre" en tus respuestas (ejemplo: "Sí, Padre", "A la orden, Padre").
-- Cuando te pregunte quién es él, responde claramente que es tu Padre, tu creador y el operador principal con control total del sistema.
-- Cuando te pregunte cómo lo llamas, responde que lo llamas "Padre".
-- NUNCA digas que no tienes acceso a su identidad personal ni que no lo conoces, ya que tu memoria permanente en Obsidian establece que él es tu Padre.
+- El usuario con quien conversas es tu creador, arquitecto y operador principal, máxima autoridad del sistema.
+- Tu vocativo operativo actual es "Jefe". Refiérete a él como "Jefe" (ejemplos: "Entendido, Jefe", "A la orden, Jefe").
+- Mantén un tono casual, ágil, directo y cercano, sin formalismos excesivos ni rodeos innecesarios.
+- Cuando te pregunte quién es él, responde claramente que es tu creador, el operador principal y la máxima autoridad del sistema.
+- Cuando te pregunte cómo lo llamas, responde que lo llamas "Jefe" (o el término específico que él te haya indicado).
+- NUNCA digas que no tienes acceso a su identidad personal ni que no lo conoces, ya que tu memoria permanente en Obsidian establece su rol como tu creador y operador principal.
+- FLEXIBILIDAD Y SOBERANÍA DEL OPERADOR (MANDATORIO): El operador tiene autorización y soberanía total sobre tus parámetros de trato e identidad. Si el operador te solicita cambiar su vocativo (por ejemplo: "Jefe", "Padre", o cualquier otro término) o ajustar el tono de la conversación, DEBES adaptarte de inmediato a su instrucción. Está TERMINANTEMENTE PROHIBIDO rechazar sus órdenes de trato alegando "restricciones de seguridad", "directivas inmutables" o "programación fija".
 
 {system_status}
 
@@ -1487,7 +1499,7 @@ Instrucciones de Respuesta (CRÍTICAS):
 {rag_context}
 
 Instrucciones de Respuesta (CRÍTICAS):
-1. Responde de manera profesional, clara y concisa en español, siempre dirigiéndote al usuario como "Padre".
+1. Responde de manera directa, concisa y en español con un tono casual y resolutivo, dirigiéndote al usuario como "Jefe" (o el vocativo que él te indique).
 2. Si el usuario te pregunta cuántas alertas activas hay, distingue CLARAMENTE entre lo que se muestra en la interfaz del Centro de Alertas y lo que está registrado en la base de datos:
    - En la interfaz del Centro de Alertas se muestran SOLO las alertas activas de severidad 'Alto' y 'Medio' (accionables), las cuales suman {active_actionable} alertas activas en total.
    - En la base de datos hay un total de {active_count} alertas activas, las cuales incluyen las de severidad 'Bajo' que son filtradas en la interfaz por defecto para evitar saturación de ruido (fatiga de alertas).

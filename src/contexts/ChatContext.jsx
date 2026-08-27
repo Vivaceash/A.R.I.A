@@ -24,7 +24,7 @@ export const ChatProvider = ({ children }) => {
   const clearHistory = useCallback(() => {
     if (window.confirm('¿Estás seguro de que deseas vaciar el historial de conversación?')) {
       setMessages([
-        { role: 'assistant', content: 'Historial borrado. ¡Hola! Soy A.R.I.A, ¿en qué te puedo asistir ahora?' }
+        { role: 'assistant', content: '¡Hola! Soy A.R.I.A, ¿en qué te puedo asistir ahora?' }
       ]);
     }
   }, []);

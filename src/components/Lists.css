@@ -20,14 +20,29 @@
 .list-items {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 8px;
+  flex: 1;
+  overflow-y: auto;
+  max-height: 220px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.1) transparent;
+}
+
+.no-alerts-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 180px;
+  color: var(--text-muted);
+  font-size: 14px;
+  text-align: center;
 }
 
 .list-item {
   display: flex;
   align-items: center;
-  padding: 12px 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
 }
 
 .list-item:last-child {
@@ -39,11 +54,12 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   border-radius: var(--radius-sm);
-  margin-right: 16px;
+  margin-right: 12px;
   background-color: var(--bg-card-hover);
+  flex-shrink: 0;
 }
 
 .icon-danger {
@@ -58,31 +74,41 @@
 
 .item-content {
   flex: 1;
+  min-width: 0;
 }
 
 .item-title {
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 500;
   color: var(--text-primary);
-  margin-bottom: 4px;
+  margin-bottom: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .item-subtitle {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .item-time {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--text-muted);
-  margin-right: 16px;
+  margin-right: 10px;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .badge {
-  padding: 4px 12px;
-  border-radius: 20px;
-  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 11px;
   font-weight: 600;
+  flex-shrink: 0;
 }
 
 .badge-high {

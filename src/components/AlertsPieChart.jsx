@@ -22,6 +22,7 @@ const AlertsPieChart = ({ data, title = "Alertas por tipo", onSliceClick }) => {
                 paddingAngle={2}
                 dataKey="value"
                 stroke="none"
+                isAnimationActive={false}
               >
                 {data.map((entry, index) => (
                   <Cell 

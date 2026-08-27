@@ -71,10 +71,10 @@ function Ciberseguridad() {
     setResolvingId(id);
     setTimeout(async () => {
       try {
-        await fetch(`/api/alertas/${id}/resolve`, { 
+        await fetch(`/api/alertas/${encodeURIComponent(id)}/resolve`, { 
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ user: 'Administrador de Seguridad' })
+          body: JSON.stringify({ user: 'Jefe' })
         });
         
         // Find filename to delete

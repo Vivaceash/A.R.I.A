@@ -1,14 +1,14 @@
 .alert-categories-container {
   background-color: var(--bg-surface);
   border: 1px solid var(--border-color);
-  border-radius: var(--radius-lg);
-  padding: 24px;
+  border-radius: var(--radius-md);
+  padding: 20px;
   display: flex;
   flex-direction: column;
 }
 
 .categories-title {
-  margin: 0 0 20px 0;
+  margin: 0 0 16px 0;
   font-size: 16px;
   font-weight: 600;
   color: var(--text-primary);
@@ -25,10 +25,10 @@
   background-color: var(--bg-card);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
-  padding: 16px;
+  padding: 14px 16px;
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 14px;
   cursor: pointer;
   transition: all 0.2s ease;
   position: relative;
@@ -57,8 +57,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 48px;
-  height: 48px;
+  width: 44px;
+  height: 44px;
   border-radius: 12px;
   background-color: rgba(255, 255, 255, 0.03);
   flex-shrink: 0;
@@ -79,7 +79,7 @@
 }
 
 .category-name {
-  font-size: 14px;
+  font-size: 13px;
   color: var(--text-secondary);
 }
 

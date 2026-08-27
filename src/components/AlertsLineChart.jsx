@@ -53,6 +53,7 @@ const AlertsLineChart = ({ data }) => {
               fontSize={12}
               tickLine={false}
               axisLine={false}
+              interval={data && data.length > 12 ? 2 : 0}
             />
             <YAxis 
               stroke="var(--text-muted)" 

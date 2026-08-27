@@ -83,11 +83,14 @@ function Alertas() {
     // Wait for the green pulse animation
     setTimeout(async () => {
       try {
-        await fetch(`/api/alertas/${id}/resolve`, { 
+        const response = await fetch(`/api/alertas/${encodeURIComponent(id)}/resolve`, { 
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ user: 'Administrador Local' })
+          body: JSON.stringify({ user: 'Jefe' })
         });
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
         // fetchAlerts will be triggered via WebSocket, but we do optimistic update here too just in case
         setResolvingId(null);
         setActiveAlerts(prev => prev.filter(a => a.id !== id));
