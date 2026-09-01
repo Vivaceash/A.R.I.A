@@ -1,9 +1,8 @@
-
 import './MetricCard.css';
 
-const MetricCard = ({ title, value, trend, trendUp, valueColor }) => {
+const MetricCard = ({ title, value, trend, trendUp, valueColor, glowType }) => {
   return (
-    <div className="metric-card">
+    <div className={`metric-card ${glowType ? `glow-${glowType}` : ''}`}>
       <h3 className="metric-title">{title}</h3>
       <div className="metric-content">
         <span 

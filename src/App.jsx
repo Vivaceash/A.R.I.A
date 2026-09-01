@@ -18,6 +18,7 @@ import Vault from './pages/Vault';
 import FinanzasDashboard from './pages/FinanzasDashboard';
 import FinanzasMovimientos from './pages/FinanzasMovimientos';
 import Accesos from './pages/Accesos';
+import ActividadUsuarios from './pages/ActividadUsuarios';
 import FloatingChat from './components/FloatingChat';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { ChatProvider } from './contexts/ChatContext';
@@ -125,6 +126,7 @@ function AppContent() {
             <Route path="/finanzas/dashboard" element={<ProtectedRoute moduleName="finanzas"><FinanzasDashboard /></ProtectedRoute>} />
             <Route path="/finanzas/movimientos" element={<ProtectedRoute moduleName="finanzas"><FinanzasMovimientos /></ProtectedRoute>} />
             <Route path="/accesos" element={<ProtectedRoute moduleName="iam"><Accesos /></ProtectedRoute>} />
+            <Route path="/accesos/actividad" element={<ProtectedRoute moduleName="iam"><ActividadUsuarios /></ProtectedRoute>} />
             
             {/* Rutas Específicas de Submódulos/Áreas */}
             <Route path="/modulo/:module/dashboard" element={<Dashboard />} />

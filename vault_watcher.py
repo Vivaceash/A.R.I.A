@@ -203,5 +203,5 @@ def start_vault_watcher(vault_path: str, vector_index, ws_manager=None, event_lo
     observer.daemon = True
     observer.start()
 
-    print(f"[VaultWatcher] ✅ Vigilando vault: {vault_path}")
+    print(f"[VaultWatcher] Vigilando vault: {vault_path}")
     return observer

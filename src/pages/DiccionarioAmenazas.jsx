@@ -89,7 +89,7 @@ function DiccionarioAmenazas() {
                 <div className="amenaza-details">
                   <div className="detail-row">
                     <span className="detail-label">Categoría</span>
-                    <span className="detail-value">{threat.category} - {threat.type}</span>
+                    <span className="detail-value">{threat.category}{threat.type ? ` - ${threat.type}` : ''}</span>
                   </div>
                   
                   {(threat.hash || threat.pattern) && (

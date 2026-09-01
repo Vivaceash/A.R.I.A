@@ -1,9 +1,9 @@
 
 .reports-card {
-  background-color: var(--bg-card);
-  border: 1px solid var(--border-color);
+  background-color: transparent;
+  border: none;
   border-radius: var(--radius-md);
-  padding: 24px;
+  padding: 0;
   overflow-x: auto;
 }
 
@@ -61,6 +61,36 @@
   color: var(--accent-primary);
   opacity: 1;
 }
+
+.reportes-stats-bar {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.stat-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  padding: 8px 16px;
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.stat-num {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.stat-alto .stat-num { color: #EF4444; }
+.stat-medio .stat-num { color: #F59E0B; }
+.stat-bajo .stat-num { color: #3B82F6; }
 
 .search-box {
   display: flex;

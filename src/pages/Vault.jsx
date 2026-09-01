@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { ShieldAlert, Archive, FileText, History, RotateCcw, AlertTriangle, Trash2 } from 'lucide-react';
+import { ShieldAlert, Archive, FileText, History, RotateCcw, AlertTriangle, Trash2, Search, MoreVertical } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import './Vault.css';
 
@@ -14,6 +14,7 @@ function Vault() {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [toastMessage, setToastMessage] = useState(null);
+  const [searchTerm, setSearchTerm] = useState('');
   const { user } = useAuth();
   const ws = useRef(null);
   const fetchRef = useRef(null);
@@ -190,6 +191,22 @@ function Vault() {
     return d.toLocaleTimeString();
   };
 
+  const getFileColor = (filename) => {
+    const ext = filename.split('.').pop().toLowerCase();
+    switch (ext) {
+      case 'txt': return '#3b82f6';
+      case 'pdf': return '#ef4444';
+      case 'docx': case 'doc': return '#2563eb';
+      case 'xlsx': case 'xls': case 'csv': return '#10b981';
+      case 'py': return '#8b5cf6';
+      default: return 'var(--text-muted)';
+    }
+  };
+
+  const filteredFiles = Object.keys(files).filter(filename => 
+    filename.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
   return (
     <div className="vault-container fade-in">
       <div className="vault-header">
@@ -204,30 +221,51 @@ function Vault() {
       <div className="vault-grid">
         <div className="vault-sidebar">
           <div className="vault-sidebar-header">
-            Archivos con Historial ({Object.keys(files).length})
+            <span className="sidebar-title">ARCHIVOS CON HISTORIAL ({Object.keys(files).length})</span>
+            <div className="vault-search">
+              <Search size={14} className="search-icon" />
+              <input 
+                type="text" 
+                placeholder="Buscar archivo..." 
+                value={searchTerm}
+                onChange={e => setSearchTerm(e.target.value)}
+              />
+            </div>
           </div>
           <div className="vault-file-list">
-            {Object.keys(files).length === 0 && (
+            {filteredFiles.length === 0 && (
               <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)' }}>
-                No hay archivos en la bóveda.
+                {Object.keys(files).length === 0 ? 'No hay archivos en la bóveda.' : 'No se encontraron archivos.'}
               </div>
             )}
-            {Object.entries(files).map(([filename, snaps]) => (
-              <div 
-                key={filename}
-                className={`vault-file-item ${selectedFile === filename ? 'active' : ''}`}
-                onClick={() => {
-                  setSelectedFile(filename);
-                  handleSelectSnapshot(snaps[0]); // Auto-select latest
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <FileText size={16} style={{ color: 'var(--accent-primary)' }} />
-                  <span className="file-name">{filename}</span>
+            {filteredFiles.map((filename) => {
+              const snaps = files[filename];
+              return (
+                <div 
+                  key={filename}
+                  className={`vault-file-item ${selectedFile === filename ? 'active' : ''}`}
+                  onClick={() => {
+                    setSelectedFile(filename);
+                    handleSelectSnapshot(snaps[0]); // Auto-select latest
+                  }}
+                >
+                  <div className="file-item-left">
+                    <FileText size={16} style={{ color: getFileColor(filename) }} />
+                    <div className="file-item-texts">
+                      <span className="file-name">{filename}</span>
+                      <span className="file-versions">{snaps.length} versión(es) guardada(s)</span>
+                    </div>
+                  </div>
+                  <div className="file-item-right">
+                    <div className="file-item-date-time">
+                      <span>{formatDate(snaps[0].timestamp)}</span>
+                      <span>{formatTime(snaps[0].timestamp)}</span>
+                    </div>
+                    <MoreVertical className="file-item-dots" size={14} />
+                  </div>
                 </div>
-                <span className="file-versions-count">{snaps.length} versión(es) guardada(s)</span>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
         
@@ -239,49 +277,78 @@ function Vault() {
               <p>Explora la línea de tiempo de modificaciones para restaurar versiones antiguas.</p>
             </div>
           ) : (
-            <div className="snapshot-viewer">
-              <div className="timeline-container">
-                {files[selectedFile]?.map(snap => (
-                  <div 
-                    key={snap.id} 
-                    className={`timeline-item ${selectedSnapshot?.id === snap.id ? 'active' : ''}`}
-                    onClick={() => handleSelectSnapshot(snap)}
-                  >
-                    <span className="timeline-date">{formatDate(snap.timestamp)}</span>
-                    <span className="timeline-time">{formatTime(snap.timestamp)}</span>
-                  </div>
-                ))}
-              </div>
-              
+            <div className="vault-viewer-container">
               {selectedSnapshot && (
                 <>
-                  <div className="snapshot-header">
-                    <div>
-                      <h3 style={{ margin: '0 0 4px 0', fontSize: '16px' }}>Viendo versión del {formatDate(selectedSnapshot.timestamp)} a las {formatTime(selectedSnapshot.timestamp)}</h3>
-                      <span style={{ fontSize: '12px', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                        <AlertTriangle size={12} color="#F59E0B" /> Snapshot de solo lectura
-                      </span>
+                  <div className="viewer-header">
+                    <div className="viewer-header-left">
+                      <div className="viewer-icon-box">
+                        <History size={20} />
+                      </div>
+                      <div className="viewer-header-texts">
+                        <div className="viewer-title">
+                          <span className="viewer-date-bold">{formatDate(selectedSnapshot.timestamp)}</span>
+                          <span className="viewer-subtitle-bold">Viendo versión del {formatDate(selectedSnapshot.timestamp)} a las {formatTime(selectedSnapshot.timestamp)}</span>
+                        </div>
+                        <div className="viewer-subtitle">
+                          <AlertTriangle size={14} color="#F59E0B" /> Snapshot de solo lectura
+                        </div>
+                      </div>
                     </div>
+                    
                     {(user?.role === 'Administrador' || user?.department === 'Ciberseguridad') && (
-                      <div style={{ display: 'flex', gap: '8px' }}>
-                        <button className="btn-restore" onClick={handleRestoreClick}>
-                          <RotateCcw size={18} />
-                          Restaurar Versión
+                      <div className="viewer-header-right">
+                        <button className="btn-vault-outline" onClick={handleRestoreClick}>
+                          <RotateCcw size={16} /> Restaurar Versión
                         </button>
-                        <button 
-                          className="btn-restore" 
-                          onClick={handleDeleteClick}
-                          style={{ background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', borderColor: 'rgba(239, 68, 68, 0.2)' }}
-                        >
-                          <Trash2 size={18} />
-                          Borrar Registro
+                        <button className="btn-vault-ghost" onClick={handleDeleteClick}>
+                          <Trash2 size={16} /> Borrar Registro
                         </button>
                       </div>
                     )}
                   </div>
                   
-                  <div className="snapshot-body">
-                    {isLoading ? 'Cargando contenido...' : snapshotContent || '(Archivo vacío)'}
+                  <div className="vault-timeline-container">
+                    <div className="vault-timeline">
+                      {[...(files[selectedFile] || [])].reverse().map((snap) => (
+                        <div 
+                          key={snap.id} 
+                          className={`timeline-node ${snap.id === selectedSnapshot?.id ? 'active' : ''}`}
+                          onClick={() => handleSelectSnapshot(snap)}
+                          title={`${formatDate(snap.timestamp)} ${formatTime(snap.timestamp)}`}
+                        >
+                          <div className="node-date-top">{formatDate(snap.timestamp)}</div>
+                          <div className="node-circle"></div>
+                          <div className="node-time-bottom">{formatTime(snap.timestamp)}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="viewer-code-area">
+                    {!(snapshotContent?.startsWith('base64:')) && (
+                      <div className="line-numbers">
+                        {(snapshotContent || '').split('\n').map((_, i) => (
+                          <div key={i}>{i + 1}</div>
+                        ))}
+                      </div>
+                    )}
+                    <div className="code-content" style={snapshotContent?.startsWith('base64:') ? { display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%' } : {}}>
+                      {isLoading ? 'Cargando contenido...' : 
+                        (snapshotContent?.startsWith('base64:') 
+                          ? (
+                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', color: 'var(--text-muted)', textAlign: 'center', padding: '40px' }}>
+                              <History size={48} style={{ opacity: 0.2, marginBottom: '16px' }} />
+                              <h3 style={{ marginBottom: '8px', color: 'var(--text-primary)' }}>Snapshot Binario</h3>
+                              <p style={{ fontSize: '13px', maxWidth: '350px' }}>
+                                Esta versión se respaldó en formato Base64. No se puede previsualizar como texto plano. Restaura la versión para abrir el archivo en su programa original.
+                              </p>
+                            </div>
+                          )
+                          : snapshotContent || '(Archivo vacío)'
+                        )
+                      }
+                    </div>
                   </div>
                 </>
               )}

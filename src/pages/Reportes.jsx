@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
-import { FileWarning, AlertTriangle, AlertCircle, FileText, Search, ArrowUpDown, ArrowUp, ArrowDown, Sparkles } from 'lucide-react';
+import { FileWarning, AlertTriangle, AlertCircle, FileText, Search, ArrowUpDown, ArrowUp, ArrowDown, Sparkles, CheckCircle } from 'lucide-react';
 import Header from '../components/Header';
 import AiAnalysisModal from '../components/AiAnalysisModal';
 import './Reportes.css';
+import './Alertas.css';
 
 function Reportes() {
   const { module } = useParams();
@@ -15,6 +16,7 @@ function Reportes() {
   const [itemsPerPage, setItemsPerPage] = useState(25);
   const [selectedAlertForAnalysis, setSelectedAlertForAnalysis] = useState(null);
   const [isAnalysisModalOpen, setIsAnalysisModalOpen] = useState(false);
+  const [resolvingId, setResolvingId] = useState(null);
 
   const handleViewAnalysis = (alert) => {
     setSelectedAlertForAnalysis(alert);
@@ -79,6 +81,27 @@ function Reportes() {
       key = null;
     }
     setSortConfig({ key, direction });
+  };
+
+  const resolveAlert = async (id) => {
+    setResolvingId(id);
+    setTimeout(async () => {
+      try {
+        const response = await fetch(`/api/alertas/${encodeURIComponent(id)}/resolve`, { 
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ user: 'Jefe' })
+        });
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        setResolvingId(null);
+        setReports(prev => prev.map(r => r.id === id ? { ...r, resolved: true, resolvedBy: 'Jefe', resolvedAt: new Date().toISOString() } : r));
+      } catch (error) {
+        console.error('Error resolving alert:', error);
+        setResolvingId(null);
+      }
+    }, 600);
   };
 
   const processedReports = useMemo(() => {
@@ -151,6 +174,13 @@ function Reportes() {
       <Header title={module ? `Histórico de ${module.charAt(0).toUpperCase() + module.slice(1)}` : "Histórico de Reportes Global"} showTimeframe={false} />
 
       <div className="reports-controls" style={{ marginTop: '24px', display: 'flex', gap: '16px', justifyContent: 'space-between', flexWrap: 'wrap' }}>
+        <div className="reportes-stats-bar">
+          <div className="stat-item"><span className="stat-num">{processedReports.length}</span> Total</div>
+          <div className="stat-item stat-alto"><span className="stat-num">{processedReports.filter(r => r.severity === 'Alto').length}</span> Alto</div>
+          <div className="stat-item stat-medio"><span className="stat-num">{processedReports.filter(r => r.severity === 'Medio').length}</span> Medio</div>
+          <div className="stat-item stat-bajo"><span className="stat-num">{processedReports.filter(r => r.severity === 'Bajo').length}</span> Bajo</div>
+        </div>
+
         <div className="search-box">
           <Search size={18} className="search-icon" />
           <input 
@@ -182,71 +212,56 @@ function Reportes() {
         ) : reports.length === 0 ? (
           <div style={{ color: 'var(--text-muted)', textAlign: 'center', padding: '40px' }}>No hay eventos en el historial.</div>
         ) : (
-          <table className="reports-table">
-            <thead>
-              <tr>
-                <th onClick={() => handleSort('title')} className="sortable-th">
-                  Archivo {renderSortIcon('title')}
-                </th>
-                <th onClick={() => handleSort('type')} className="sortable-th">
-                  Evento {renderSortIcon('type')}
-                </th>
-                <th onClick={() => handleSort('description')} className="sortable-th">
-                  Descripción {renderSortIcon('description')}
-                </th>
-                <th onClick={() => handleSort('severity')} className="sortable-th">
-                  Severidad {renderSortIcon('severity')}
-                </th>
-                <th onClick={() => handleSort('timestamp')} className="sortable-th">
-                  Fecha {renderSortIcon('timestamp')}
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {currentItems.map(report => {
-                let Icon = AlertCircle;
-                if (report.iconClass === 'icon-danger') Icon = FileWarning;
-                else if (report.iconClass === 'icon-warning') Icon = AlertTriangle;
-                else if (report.iconClass === 'icon-info') Icon = FileText;
+          <div className="alertas-list">
+            {currentItems.map(report => {
+              let Icon = AlertCircle;
+              if (report.severity === 'Alto') Icon = FileWarning;
+              else if (report.severity === 'Medio') Icon = AlertTriangle;
+              else Icon = FileText;
 
-                return (
-                  <tr key={report.id}>
-                    <td>
-                      <div className="file-name-cell">
-                        <Icon size={16} style={{ color: report.severity === 'Alto' ? 'var(--accent-danger)' : 'var(--text-muted)' }} />
-                        {report.title}
-                      </div>
-                    </td>
-                    <td>{report.type}</td>
-                    <td>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
-                        <span>{report.description}</span>
-                        {report.aiAnalysis && (
-                          <button 
-                            className="view-analysis-btn-table" 
-                            onClick={() => handleViewAnalysis(report)}
-                            title="Ver Auditoría IA"
-                            style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'var(--accent-primary-dim)', border: '1px solid rgba(59, 130, 246, 0.2)', color: 'var(--accent-primary)', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', fontWeight: '500', whiteSpace: 'nowrap' }}
-                          >
-                            <Sparkles size={12} />
-                            <span>Auditoría IA</span>
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                    <td>
-                      <span className={`badge ${report.severity === 'Alto' ? 'badge-high' : (report.severity === 'Medio' ? 'badge-medium' : 'badge-low')}`}>
-                        {report.severity}
+              return (
+                <div key={report.id} className={`alerta-card severity-${report.severity.toLowerCase()} ${resolvingId === report.id ? 'resolving-green' : ''} ${report.resolved ? 'resolved-card' : ''}`}>
+                  <div className="alerta-card-icon">
+                    {report.resolved ? <CheckCircle size={24} /> : <Icon size={24} />}
+                  </div>
+                  
+                  <div className="alerta-card-body">
+                    <div className="alerta-card-header">
+                      <h4>{report.title}</h4>
+                      <span className="alerta-card-time">{new Date(report.timestamp).toLocaleString()}</span>
+                    </div>
+                    <p className="alerta-card-desc">{report.description}</p>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '12px' }}>
+                      <span className={`alerta-card-badge badge-${report.severity.toLowerCase()}`}>
+                        Riesgo {report.severity}
                       </span>
-                    </td>
-                    <td className="date-cell">
-                      {new Date(report.timestamp).toLocaleString()}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                      <span className="alerta-card-badge" style={{ background: 'rgba(255,255,255,0.05)', color: 'var(--text-muted)' }}>
+                        {report.type}
+                      </span>
+                    </div>
+                  </div>
+                  
+                  <div className="alerta-card-actions">
+                    <button 
+                      className="view-analysis-btn" 
+                      onClick={() => report.aiAnalysis && handleViewAnalysis(report)}
+                      style={{ cursor: report.aiAnalysis ? 'pointer' : 'not-allowed', filter: report.aiAnalysis ? 'none' : 'brightness(0.8)', width: report.resolved ? '100%' : 'auto', justifyContent: 'center' }}
+                    >
+                      <Sparkles size={18} />
+                      <span>Ver Auditoría IA</span>
+                    </button>
+                    
+                    {!report.resolved && (
+                      <button className="resolve-btn" onClick={() => resolveAlert(report.id)} disabled={resolvingId === report.id}>
+                        <CheckCircle size={18} />
+                        <span>{resolvingId === report.id ? 'Resolviendo...' : 'Marcar Resuelto'}</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         )}
 
         {!loading && processedReports.length > 0 && (

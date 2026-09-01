@@ -1,48 +1,17 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
-import { FileText, FileSpreadsheet, Image as ImageIcon, File, FileCode, FolderArchive, Terminal, X, Download, FolderOpen, Search, ArrowUp, ArrowDown, Grid, Folder, Sparkles } from 'lucide-react';
+import { X, Download, FolderOpen, Search, ArrowUp, ArrowDown, Grid, Folder, Sparkles } from 'lucide-react';
 import Header from '../components/Header';
 import AiAnalysisModal from '../components/AiAnalysisModal';
+import FileTypeIcon from '../components/FileTypeIcon';
 import './Comparaciones.css';
 
 const getFileIcon = (filename) => {
   const parts = filename.split('.');
   const ext = parts.length > 1 ? parts.pop().toLowerCase() : '';
   
-  switch (ext) {
-    case 'doc':
-    case 'docx':
-    case 'txt':
-    case 'pdf':
-      return <FileText size={48} className="file-icon-doc" />;
-    case 'xls':
-    case 'xlsx':
-    case 'csv':
-      return <FileSpreadsheet size={48} className="file-icon-sheet" />;
-    case 'jpg':
-    case 'jpeg':
-    case 'png':
-    case 'svg':
-    case 'gif':
-      return <ImageIcon size={48} className="file-icon-image" />;
-    case 'py':
-    case 'js':
-    case 'jsx':
-    case 'html':
-    case 'css':
-    case 'json':
-      return <FileCode size={48} className="file-icon-code" />;
-    case 'zip':
-    case 'tar':
-    case 'gz':
-    case 'rar':
-      return <FolderArchive size={48} className="file-icon-archive" />;
-    case 'sh':
-    case 'bash':
-      return <Terminal size={48} className="file-icon-terminal" />;
-    default:
-      return <File size={48} className="file-icon-generic" />;
-  }
+  const displayExt = ext ? ext : 'FILE';
+  return <FileTypeIcon type={displayExt} size={48} />;
 };
 
 const getFileColor = (filename) => {
@@ -50,11 +19,13 @@ const getFileColor = (filename) => {
   const ext = parts.length > 1 ? parts.pop().toLowerCase() : '';
   
   switch (ext) {
+    case 'pdf':
+      return '#EF4444'; // Red for PDF
     case 'doc':
     case 'docx':
+      return '#3B82F6'; // Blue for Word
     case 'txt':
-    case 'pdf':
-      return '#3B82F6';
+      return '#9CA3AF'; // Gray/White for TXT
     case 'xls':
     case 'xlsx':
     case 'csv':
@@ -326,10 +297,14 @@ function Comparaciones() {
             }, {})
           ).sort((a, b) => b[1].length - a[1].length).map(([ext, files]) => (
             <div key={ext} className="file-group-section">
-              <div className="file-group-header">
-                <Folder size={24} color="var(--accent-primary)" />
-                <h3>Archivos .{ext}</h3>
-                <span className="badge">{files.length}</span>
+              <div className="file-group-header" style={{ '--group-color': getFileColor('file.' + ext) }}>
+                <Folder size={32} className="group-icon" />
+                <div className="group-title-container">
+                  <h3>Documentos .{ext.toUpperCase()}</h3>
+                  <span className="group-badge">
+                    {files.length} {files.length === 1 ? 'archivo' : 'archivos'}
+                  </span>
+                </div>
               </div>
               <div className="files-grid">
                 {files.map((file, idx) => (

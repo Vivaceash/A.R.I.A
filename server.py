@@ -12,6 +12,7 @@ import subprocess
 import shutil
 import re
 import hashlib
+import uuid
 try:
     import pwd
 except ImportError:
@@ -220,6 +221,12 @@ def init_db():
             title TEXT,
             description TEXT,
             timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY,
+            value TEXT
         )
     ''')
     conn.commit()
@@ -861,8 +868,15 @@ def restore_vault_snapshot(snapshot_id: int):
     dest_path = os.path.join(DIRECTORY, new_filename)
     
     try:
-        with open(dest_path, "w", encoding="utf-8") as f:
-            f.write(content)
+        import base64
+        if content.startswith("base64:"):
+            # Binary snapshot stored as base64 — decode back to original binary
+            b64_data = content[len("base64:"):]
+            with open(dest_path, "wb") as f:
+                f.write(base64.b64decode(b64_data))
+        else:
+            with open(dest_path, "w", encoding="utf-8") as f:
+                f.write(content)
             
         owner = "Sistema (Restauración Vault)"
         alert_id = f"res-vault-{int(time.time() * 1000)}-{new_filename}"
@@ -960,7 +974,6 @@ async def manual_security_scan():
 
 import io
 import csv
-from fastapi.responses import StreamingResponse
 
 @app.get("/api/security/report/csv")
 def download_security_report(user: str = "Desconocido", destination: str = "Local"):
@@ -1173,8 +1186,7 @@ def set_budget(payload: FinanceBudget):
     conn.close()
     return {"status": "success"}
 
-from fastapi import File, UploadFile
-import uuid
+# (File, UploadFile and uuid already imported at top)
 
 @app.post("/api/finances/upload")
 async def upload_finance_receipt(file: UploadFile = File(...)):
@@ -1464,7 +1476,6 @@ Debes basar tu respuesta ÚNICAMENTE en el bloque [HISTORIAL DE VERSIONES PARA C
     current_path = payload.pageContext.currentPath if payload.pageContext else "/chat"
     system_status, active_count, active_actionable = build_realtime_system_status(current_path)
     
-    # 4. Assemble system prompt
     # 4. Assemble system prompt
     if comparison_context:
         system_prompt = f"""Eres A.R.I.A (Asistente de Red Inteligente y Análisis), un asistente virtual avanzado de ciberseguridad y análisis de datos.
@@ -2123,11 +2134,7 @@ class DirectoryMonitor(FileSystemEventHandler):
             content = extract_file_content(filepath)  # may be empty string
             save_file_snapshot(filename, content)
                     
-            # Trigger Security Scan against DB
-            try:
-                content = extract_file_content(filepath)
-            except Exception:
-                content = ""
+            # Trigger Security Scan against DB (reuse already-extracted content)
             asyncio.run_coroutine_threadsafe(
                 scan_file_against_db(filename, filepath, owner, content, fsize),
                 self.loop
@@ -2244,6 +2251,87 @@ async def startup_event():
         print(f"[Startup] ⚠️ RAG v2 initialization failed: {e}")
         print("[Startup] Chat will work without vectorial RAG (degraded mode)")
 
+@app.get("/api/stats/user-activity")
+def get_user_activity(days: str = "7"):
+    """Aggregate alert_history by owner for the Actividad de Usuarios page."""
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    
+    # Determine cutoff
+    if days == "all":
+        c.execute('''
+            SELECT id, filename, description, event_type, severity, icon_class, timestamp, owner
+            FROM alert_history
+            ORDER BY timestamp DESC
+            LIMIT 500
+        ''')
+    else:
+        try:
+            days_int = int(days)
+        except ValueError:
+            days_int = 7
+        cutoff = (datetime.now() - timedelta(days=days_int)).isoformat()
+        c.execute('''
+            SELECT id, filename, description, event_type, severity, icon_class, timestamp, owner
+            FROM alert_history
+            WHERE timestamp >= ?
+            ORDER BY timestamp DESC
+            LIMIT 500
+        ''', (cutoff,))
+    
+    rows = c.fetchall()
+    conn.close()
+    
+    # Build chart_data: grouped by owner with event type counts
+    user_stats = {}
+    table_data = []
+    
+    for r in rows:
+        alert_id, filename, description, event_type, severity, icon_class, timestamp, owner = r
+        if not owner:
+            owner = "Sistema"
+        
+        if owner not in user_stats:
+            user_stats[owner] = {"Modificación": 0, "Creación": 0, "Eliminación": 0, "Otros": 0, "total": 0}
+        
+        if event_type in ("Modificación",):
+            user_stats[owner]["Modificación"] += 1
+        elif event_type in ("Creación",):
+            user_stats[owner]["Creación"] += 1
+        elif event_type in ("Eliminado",):
+            user_stats[owner]["Eliminación"] += 1
+        else:
+            user_stats[owner]["Otros"] += 1
+        user_stats[owner]["total"] += 1
+        
+        table_data.append({
+            "id": alert_id,
+            "filename": filename or "",
+            "description": description or "",
+            "event_type": event_type or "Otro",
+            "severity": severity or "Bajo",
+            "timestamp": timestamp or "",
+            "time_ago": calculate_time_ago(timestamp) if timestamp else "",
+            "owner": owner
+        })
+    
+    # Convert to chart array sorted by total desc
+    chart_data = []
+    for name, stats in sorted(user_stats.items(), key=lambda x: x[1]["total"], reverse=True):
+        chart_data.append({
+            "name": name,
+            "Modificación": stats["Modificación"],
+            "Creación": stats["Creación"],
+            "Eliminación": stats["Eliminación"],
+            "Otros": stats["Otros"],
+            "total": stats["total"]
+        })
+    
+    return {
+        "chart_data": chart_data,
+        "table_data": table_data
+    }
+
 @app.get("/api/iam/sessions")
 def get_iam_sessions():
     conn = sqlite3.connect(DB_FILE)
@@ -2328,6 +2416,28 @@ class UserCreate(BaseModel):
     role: str
     department: str
     password: str = None
+
+@app.get("/api/settings")
+def get_settings():
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT key, value FROM settings")
+    rows = c.fetchall()
+    conn.close()
+    return {row[0]: row[1] for row in rows}
+
+class SettingsPayload(BaseModel):
+    settings: dict
+
+@app.post("/api/settings")
+def save_settings(payload: SettingsPayload):
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    for key, value in payload.settings.items():
+        c.execute("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, str(value)))
+    conn.commit()
+    conn.close()
+    return {"status": "success"}
 
 @app.post("/api/users")
 def create_user(user: UserCreate):

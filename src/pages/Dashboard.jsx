@@ -158,6 +158,11 @@ function Dashboard() {
             (data.metrics.riesgo_promedio === 'Medio' ? 'var(--accent-warning)' : 
             (data.metrics.riesgo_promedio === 'Crítico' ? '#991B1B' : 'var(--accent-danger)'))
           }
+          glowType={
+            data.metrics.riesgo_promedio === 'Bajo' ? 'success' : 
+            (data.metrics.riesgo_promedio === 'Medio' ? 'warning' : 
+            (data.metrics.riesgo_promedio === 'Crítico' ? 'critical' : 'danger'))
+          }
         />
       </div>
 

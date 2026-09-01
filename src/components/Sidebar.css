@@ -50,19 +50,33 @@
   border-radius: var(--radius-sm);
   color: var(--text-secondary);
   font-weight: 500;
+  white-space: nowrap;
   transition: all 0.2s ease;
   cursor: pointer;
 }
 
 .nav-item:hover {
-  background-color: var(--bg-card-hover);
+  background-color: rgba(255, 255, 255, 0.04);
   color: var(--text-primary);
+  box-shadow: inset 2px 0 0 rgba(168, 85, 247, 0.5);
 }
 
 .nav-item.active {
-  background-color: var(--accent-primary-dim);
-  color: var(--accent-primary);
-  font-weight: 600;
+  background: linear-gradient(90deg, rgba(168, 85, 247, 0.12), rgba(59, 130, 246, 0.04));
+  box-shadow: inset 3px 0 0 #A855F7;
+}
+
+.nav-item.active .nav-text {
+  background: linear-gradient(90deg, #A855F7, #3B82F6);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  color: transparent;
+  font-weight: 700;
+}
+
+.nav-item.active svg {
+  color: #A855F7;
 }
 
 .nav-item svg {

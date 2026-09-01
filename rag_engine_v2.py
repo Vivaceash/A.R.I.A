@@ -28,7 +28,7 @@ import ollama
 from rag_engine import extract_file_content
 
 # === CONFIGURACIÓN ===
-VAULT_PATH = "/home/astra/Documents/ARIA_Vault/"
+VAULT_PATH = "c:/Users/Casillas/Documents/ARIA/ARIA_Vault/"
 CHROMA_DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "aria_chroma_db")
 EMBEDDING_MODEL = "nomic-embed-text"
 CHUNK_SIZE = 600

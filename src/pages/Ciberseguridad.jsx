@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import Header from '../components/Header';
-import { ShieldAlert, ShieldCheck, Search, Activity, Lock, AlertTriangle, CheckCircle, ChevronDown, ChevronUp, Trash2, Zap, Download } from 'lucide-react';
+import { ShieldAlert, ShieldCheck, Search, Activity, Lock, AlertTriangle, CheckCircle, ChevronDown, ChevronUp, Zap } from 'lucide-react';
 import './Ciberseguridad.css';
 
 function Ciberseguridad() {
@@ -25,7 +25,6 @@ function Ciberseguridad() {
       if (!response.ok) throw new Error('Error al conectar con la API');
       const data = await response.json();
       
-      // Filter for Security Risks
       const secAlerts = data.filter(a => a.type === 'Riesgo de Seguridad');
       setSecurityAlerts(secAlerts);
     } catch (error) {
@@ -47,7 +46,7 @@ function Ciberseguridad() {
       ws.onmessage = (event) => {
         try {
           const message = JSON.parse(event.data);
-          if (message.alert && message.alert.severity === 'Crítico' || message.alert?.type === 'Riesgo de Seguridad') {
+          if ((message.alert && message.alert.severity === 'Crítico') || message.alert?.type === 'Riesgo de Seguridad') {
             fetchSecurityAlerts();
           }
         } catch (e) {
@@ -74,10 +73,9 @@ function Ciberseguridad() {
         await fetch(`/api/alertas/${encodeURIComponent(id)}/resolve`, { 
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ user: 'Jefe' })
+          body: JSON.stringify({ user: 'Administrador de Seguridad' })
         });
         
-        // Find filename to delete
         const alert = securityAlerts.find(a => a.id === id);
         if (alert) {
           const filename = alert.filePath?.split('\\').pop()?.split('/').pop() || alert.title.replace('¡Amenaza Detectada!: ', '').replace('Riesgo Detectado: ', '');
@@ -102,7 +100,6 @@ function Ciberseguridad() {
     try {
       const response = await fetch('/api/security/scan', { method: 'POST' });
       const data = await response.json();
-      // El WebSocket actualizará la UI, pero podemos forzar un refresh por si acaso
       fetchSecurityAlerts();
       if (data.status === 'success') {
         showToast(data.message);
@@ -132,11 +129,12 @@ function Ciberseguridad() {
     <>
       <Header title={module ? `Ciberseguridad: ${module.charAt(0).toUpperCase() + module.slice(1)}` : "Ciberseguridad Global"} showTimeframe={false} />
       
-      <div className="ciber-page-container">
-        {/* Status Dashboard */}
+      <div className="ciber-page-container fade-in">
+        {/* Status Dashboard Grid */}
         <div className="ciber-dashboard">
-          <div className="ciber-status-card glass-panel">
-            <div className="status-icon-wrapper pulse-animation">
+          
+          <div className={`ciber-status-card ${activeThreats.length > 0 ? 'danger' : 'safe'}`}>
+            <div className={`status-icon-wrapper ${activeThreats.length > 0 ? 'pulse-animation-danger' : 'pulse-animation'}`}>
                {activeThreats.length > 0 ? <ShieldAlert size={48} color="#EF4444" /> : <ShieldCheck size={48} color="#10B981" />}
             </div>
             <div className="status-info">
@@ -148,15 +146,20 @@ function Ciberseguridad() {
           </div>
           
           <div className="ciber-metrics">
-            <div className="metric-box glass-panel">
-              <Activity size={24} color="#3B82F6" />
+            <div className="metric-box">
+              <div className="metric-icon-box blue">
+                <Activity size={24} />
+              </div>
               <div className="metric-data">
                 <h4>Monitoreo Activo</h4>
                 <span>YARA & Hashes SHA-256</span>
               </div>
             </div>
-            <div className="metric-box glass-panel">
-              <Lock size={24} color="#8B5CF6" />
+            
+            <div className="metric-box">
+              <div className="metric-icon-box purple">
+                <Lock size={24} />
+              </div>
               <div className="metric-data">
                 <h4>Protección de Datos</h4>
                 <span>Prevención de Fugas Activa</span>
@@ -164,24 +167,25 @@ function Ciberseguridad() {
             </div>
             
             <div className="security-controls-panel">
-              <button className="btn-action btn-scan" onClick={handleScan} disabled={isScanning}>
+              <button className="btn-scan" onClick={handleScan} disabled={isScanning}>
                 <Zap size={20} />
-                <span>{isScanning ? 'Escaneando...' : 'Escanear Sistema'}</span>
+                <span>{isScanning ? 'Escaneando el sistema...' : 'Escanear Sistema'}</span>
               </button>
             </div>
           </div>
+          
         </div>
 
-        <div className="alertas-header" style={{ marginTop: '32px' }}>
+        <div className="alertas-header">
           <div className="alertas-stats">
             <h2>{activeThreats.length}</h2>
             <p>Amenazas Pendientes</p>
           </div>
           <div className="alertas-search">
-            <Search size={20} className="search-icon" />
+            <Search size={18} className="search-icon" />
             <input 
               type="text" 
-              placeholder="Buscar en incidentes..." 
+              placeholder="Buscar incidentes..." 
               className="search-input"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
@@ -192,13 +196,13 @@ function Ciberseguridad() {
         {loading ? (
           <div className="loading-state">Analizando base de datos de firmas...</div>
         ) : filteredActiveAlerts.length === 0 ? (
-          <div className="empty-state inbox-zero">
-            <ShieldCheck size={64} className="inbox-zero-icon" color="#10B981" />
+          <div className="empty-state inbox-zero fade-in">
+            <ShieldCheck size={72} className="inbox-zero-icon" color="#10B981" />
             <h3>Entorno Limpio</h3>
-            <p>No hay amenazas activas que requieran resolución.</p>
+            <p>No se han detectado vulnerabilidades activas en este momento.</p>
           </div>
         ) : (
-          <div className="alertas-list">
+          <div className="alertas-list fade-in">
             {filteredActiveAlerts.map(alert => (
               <div key={alert.id} className={`alerta-card threat-card severity-${alert.severity.toLowerCase()} ${resolvingId === alert.id ? 'resolving-green' : ''}`}>
                 <div className="alerta-card-icon">
@@ -220,7 +224,7 @@ function Ciberseguridad() {
                 <div className="alerta-card-actions">
                   <button className="resolve-btn" onClick={() => resolveAlert(alert.id)} disabled={resolvingId === alert.id}>
                     <CheckCircle size={18} />
-                    <span>{resolvingId === alert.id ? 'Neutralizando...' : 'Neutralizar / Resolver'}</span>
+                    <span>{resolvingId === alert.id ? 'Neutralizando...' : 'Neutralizar Amenaza'}</span>
                   </button>
                 </div>
               </div>
@@ -229,13 +233,13 @@ function Ciberseguridad() {
         )}
 
         {resolvedThreats.length > 0 && (
-          <div className="resolved-section" style={{ marginTop: '32px' }}>
+          <div className="resolved-section">
             <button 
               className="resolved-toggle-btn" 
               onClick={() => setShowResolved(!showResolved)}
             >
-              <span>Ver amenazas neutralizadas ({resolvedThreats.length})</span>
-              {showResolved ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+              <span>Ver incidentes neutralizados ({resolvedThreats.length})</span>
+              {showResolved ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
             </button>
             
             {showResolved && (
@@ -252,13 +256,13 @@ function Ciberseguridad() {
                       </div>
                       <p className="alerta-card-desc">{alert.description}</p>
                       <div className="resolved-by-info">
-                        Neutralizado por <strong>{alert.resolvedBy || 'Desconocido'}</strong> el {alert.resolvedAt ? new Date(alert.resolvedAt).toLocaleString() : ''}
+                        Neutralizado por <strong>{alert.resolvedBy || 'Sistema'}</strong> el {alert.resolvedAt ? new Date(alert.resolvedAt).toLocaleString() : ''}
                       </div>
                     </div>
                   </div>
                 ))}
                 {filteredResolvedAlerts.length === 0 && (
-                  <p className="no-alerts-msg">Ninguna amenaza neutralizada coincide con tu búsqueda.</p>
+                  <p style={{ textAlign: 'center', color: 'var(--text-muted)' }}>Ninguna amenaza neutralizada coincide con la búsqueda.</p>
                 )}
               </div>
             )}
