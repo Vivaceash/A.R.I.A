@@ -121,7 +121,7 @@ function AppContent() {
             <Route path="/ciberseguridad" element={<ProtectedRoute moduleName="amenazas"><Ciberseguridad /></ProtectedRoute>} />
             <Route path="/ciberseguridad/diccionario" element={<ProtectedRoute moduleName="amenazas"><DiccionarioAmenazas /></ProtectedRoute>} />
             <Route path="/ciberseguridad/reportes" element={<ProtectedRoute moduleName="amenazas"><ReportesAuditoria /></ProtectedRoute>} />
-            <Route path="/boveda" element={<ProtectedRoute moduleName="boveda"><Vault /></ProtectedRoute>} />
+            <Route path="/boveda" element={<ProtectedRoute moduleName="boveda"><Archivos initialTab="vault" /></ProtectedRoute>} />
             <Route path="/finanzas/dashboard" element={<ProtectedRoute moduleName="finanzas"><FinanzasDashboard /></ProtectedRoute>} />
             <Route path="/finanzas/movimientos" element={<ProtectedRoute moduleName="finanzas"><FinanzasMovimientos /></ProtectedRoute>} />
             <Route path="/accesos" element={<ProtectedRoute moduleName="iam"><Accesos /></ProtectedRoute>} />

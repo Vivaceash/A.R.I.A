@@ -3,7 +3,7 @@ import { ShieldAlert, Archive, FileText, History, RotateCcw, AlertTriangle, Tras
 import { useAuth } from '../contexts/AuthContext';
 import './Vault.css';
 
-function Vault() {
+function Vault({ isEmbedded = false }) {
   const [snapshots, setSnapshots] = useState([]);
   const [files, setFiles] = useState({});
   const [selectedFile, setSelectedFile] = useState(null);
@@ -191,13 +191,15 @@ function Vault() {
   };
 
   return (
-    <div className="vault-container fade-in">
-      <div className="vault-header">
-        <Archive size={32} />
-        <h1>Bóveda de Recuperación (Vault)</h1>
-      </div>
+    <div className="vault-container fade-in" style={isEmbedded ? { marginTop: '16px' } : {}}>
+      {!isEmbedded && (
+        <div className="vault-header">
+          <Archive size={32} />
+          <h1>Bóveda de Recuperación (Vault)</h1>
+        </div>
+      )}
       
-      <p style={{ color: 'var(--text-muted)', marginBottom: '24px' }}>
+      <p style={{ color: 'var(--text-muted)', marginBottom: '20px', fontSize: '13.5px' }}>
         Las versiones de los archivos modificados se respaldan aquí. El sistema mantiene un historial automático de 7 días, purgando las capturas más antiguas.
       </p>
 

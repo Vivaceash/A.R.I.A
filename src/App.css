@@ -1,6 +1,6 @@
 .app-container {
   display: grid;
-  grid-template-columns: 240px 1fr;
+  grid-template-columns: 264px 1fr;
   height: 100vh;
   max-height: 100vh;
   overflow: hidden;

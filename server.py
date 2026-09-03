@@ -1,4 +1,4 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, File, UploadFile, Depends
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, File, UploadFile, Depends, Form
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -12,6 +12,8 @@ import subprocess
 import shutil
 import re
 import hashlib
+import zipfile
+import xml.etree.ElementTree as ET
 try:
     import pwd
 except ImportError:
@@ -83,6 +85,15 @@ def init_db():
         os.makedirs(DIRECTORY, exist_ok=True)
     if not os.path.exists(BACKUP_DIR):
         os.makedirs(BACKUP_DIR, exist_ok=True)
+        
+    sample_pdf_src = os.path.join(BASE_DIR, "documentos_monitoreados", "CertificadoGettingStartedWithMongoDBAtlas.pdf")
+    sample_pdf_dst = os.path.join(DIRECTORY, "Contrato_Proveedor.pdf")
+    if os.path.exists(sample_pdf_src) and not os.path.exists(sample_pdf_dst):
+        try:
+            shutil.copy2(sample_pdf_src, sample_pdf_dst)
+        except Exception:
+            pass
+
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
     c.execute('PRAGMA journal_mode=WAL;')
@@ -237,6 +248,7 @@ def seed_iam_data():
     if c.fetchone()[0] == 0:
         default_hash = pwd_context.hash("123456")
         users = [
+            ("admin", "Administrador", "Sistemas", default_hash),
             ("Carlos M.", "Administrador", "Dirección", default_hash),
             ("Ana P.", "Operativo", "Finanzas", default_hash),
             ("Sistema", "Invitado", "Operaciones", default_hash),
@@ -466,9 +478,12 @@ def get_all_files():
                         owner = pwd.getpwuid(stat.st_uid).pw_name
                     else:
                         owner = "Sistema"
+                    rel_dir = os.path.relpath(root, DIRECTORY)
+                    folder_name = "Documentos" if rel_dir == "." else rel_dir
                     files_data.append({
                         "name": filename,
                         "owner": owner,
+                        "folder": folder_name,
                         "mtime": datetime.fromtimestamp(stat.st_mtime).isoformat(),
                         "size": stat.st_size,
                         "timestamp": stat.st_mtime,
@@ -790,6 +805,204 @@ def download_file(filename: str):
         raise HTTPException(status_code=404, detail="File not found")
         
     return FileResponse(path=str(filepath), filename=filename)
+
+@app.post("/api/files/upload")
+async def upload_general_file(file: UploadFile = File(...), folder: str = Form(None), module: str = Form(None)):
+    global GLOBAL_FILE_CACHE, CACHE_LAST_UPDATE
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="Nombre de archivo inválido.")
+        
+    clean_filename = os.path.basename(file.filename)
+    clean_filename = re.sub(r'[^a-zA-Z0-9_.\-\s\(\)]', '', clean_filename)
+    if not clean_filename:
+        clean_filename = f"archivo_{int(time.time())}"
+        
+    target_dir = DIRECTORY
+    if module and module.lower() != "general":
+        target_dir = os.path.join(DIRECTORY, module)
+    elif folder and folder.lower() not in ["raíz", "documentos", "general", "todos"]:
+        target_dir = os.path.join(DIRECTORY, folder)
+        
+    os.makedirs(target_dir, exist_ok=True)
+    file_path = os.path.join(target_dir, clean_filename)
+    
+    try:
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+            
+        GLOBAL_FILE_CACHE = None
+        CACHE_LAST_UPDATE = 0
+        
+        stat = os.stat(file_path)
+        owner = "Astra"
+        if pwd:
+            try:
+                owner = pwd.getpwuid(stat.st_uid).pw_name
+            except Exception:
+                pass
+                
+        alert_id = f"up-{int(time.time() * 1000)}-{clean_filename}"
+        desc = f"Archivo '{clean_filename}' subido exitosamente a {os.path.basename(target_dir)}."
+        log_event(alert_id, clean_filename, desc, "Creación", "Bajo", "icon-info", None, file_path, stat.st_size, owner)
+        
+        return {
+            "status": "success",
+            "message": "Archivo subido correctamente",
+            "file": {
+                "name": clean_filename,
+                "owner": owner,
+                "folder": os.path.basename(target_dir) if target_dir != DIRECTORY else "Documentos",
+                "size": stat.st_size,
+                "mtime": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                "path": file_path
+            }
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al guardar archivo: {str(e)}")
+
+@app.get("/api/files/{filename}/activity")
+def get_file_activity(filename: str):
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute('''
+        SELECT id, filename, description, event_type, severity, icon_class, timestamp, owner, ai_analysis
+        FROM alert_history
+        WHERE filename = ? OR filename LIKE ?
+        ORDER BY timestamp DESC
+        LIMIT 20
+    ''', (filename, f"%{filename}%"))
+    rows = c.fetchall()
+    conn.close()
+    
+    activities = []
+    for r in rows:
+        activities.append({
+            "id": r[0],
+            "filename": r[1],
+            "description": r[2],
+            "type": r[3],
+            "severity": r[4],
+            "iconClass": r[5],
+            "time": calculate_time_ago(r[6]),
+            "timestamp": r[6],
+            "owner": r[7] or "Sistema",
+            "aiAnalysis": r[8]
+        })
+    return activities
+
+@app.get("/api/files/{filename}/doc-content")
+def get_document_content(filename: str):
+    safe_path = secure_resolve_path(filename, DIRECTORY, must_exist=False)
+    filepath = None
+    if safe_path.exists() and safe_path.is_file():
+        filepath = safe_path
+    else:
+        for root, dirs, files in os.walk(DIRECTORY):
+            if filename in files:
+                candidate = Path(root) / filename
+                if secure_resolve_path(str(candidate.relative_to(DIRECTORY)), DIRECTORY, must_exist=True).exists():
+                    filepath = candidate
+                    break
+                    
+    if not filepath or not filepath.exists():
+        raise HTTPException(status_code=404, detail="Archivo no encontrado.")
+        
+    _, ext = os.path.splitext(filename.lower())
+    
+    if ext == '.docx':
+        try:
+            with zipfile.ZipFile(str(filepath)) as docx:
+                xml_content = docx.read('word/document.xml')
+                root = ET.fromstring(xml_content)
+                
+                html_parts = []
+                paragraphs_count = 0
+                words_count = 0
+                
+                for child in root.iter():
+                    if child.tag.endswith('p'):
+                        p_text = []
+                        is_heading = False
+                        heading_level = 1
+                        
+                        pPr = child.find('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}pPr')
+                        if pPr is not None:
+                            pStyle = pPr.find('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}pStyle')
+                            if pStyle is not None:
+                                val = pStyle.attrib.get('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}val', '')
+                                if 'Heading' in val or 'Titulo' in val or 'Title' in val:
+                                    is_heading = True
+                                    heading_level = 1 if '1' in val else 2 if '2' in val else 3
+                        
+                        for r in child.findall('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}r'):
+                            t = r.find('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}t')
+                            if t is not None and t.text:
+                                text = t.text
+                                rPr = r.find('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}rPr')
+                                if rPr is not None:
+                                    if rPr.find('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}b') is not None:
+                                        text = f"<strong>{text}</strong>"
+                                    if rPr.find('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}i') is not None:
+                                        text = f"<em>{text}</em>"
+                                p_text.append(text)
+                                
+                        full_p = "".join(p_text).strip()
+                        if full_p:
+                            paragraphs_count += 1
+                            words_count += len(full_p.split())
+                            if is_heading:
+                                html_parts.append(f"<h{heading_level} class='doc-heading doc-h{heading_level}'>{full_p}</h{heading_level}>")
+                            else:
+                                html_parts.append(f"<p class='doc-paragraph'>{full_p}</p>")
+                                
+                    elif child.tag.endswith('tbl'):
+                        table_html = ["<table class='doc-table'>"]
+                        for tr in child.findall('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}tr'):
+                            table_html.append("<tr>")
+                            for tc in tr.findall('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}tc'):
+                                cell_text = []
+                                for t in tc.iter():
+                                    if t.tag.endswith('t') and t.text:
+                                        cell_text.append(t.text)
+                                table_html.append(f"<td>{' '.join(cell_text)}</td>")
+                            table_html.append("</tr>")
+                        table_html.append("</table>")
+                        html_parts.append("".join(table_html))
+                        
+                return {
+                    "status": "success",
+                    "type": "docx",
+                    "html": "".join(html_parts) if html_parts else "<p class='doc-empty-msg'>Documento sin texto.</p>",
+                    "paragraphs": paragraphs_count,
+                    "words": words_count,
+                    "filename": filename
+                }
+        except Exception as e:
+            return {
+                "status": "error",
+                "type": "docx",
+                "message": str(e),
+                "html": f"<p class='doc-error-msg'>No se pudo renderizar la estructura Word: {str(e)}</p>",
+                "paragraphs": 0,
+                "words": 0,
+                "filename": filename
+            }
+            
+    elif ext in ['.txt', '.py', '.js', '.jsx', '.json', '.md', '.html', '.css', '.sh', '.sql', '.log']:
+        try:
+            with open(str(filepath), 'r', encoding='utf-8', errors='ignore') as f:
+                content = f.read(50000)
+            return {
+                "status": "success",
+                "type": "text",
+                "content": content,
+                "words": len(content.split()),
+                "filename": filename
+            }
+        except Exception as e:
+            return {"status": "error", "type": "text", "message": str(e)}
+            
+    return {"status": "success", "type": ext.lstrip('.'), "filename": filename}
 
 @app.get("/api/modules")
 def get_modules():

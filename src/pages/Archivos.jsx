@@ -1,392 +1,1039 @@
-import { useState, useEffect, useMemo } from 'react';
-import { useParams } from 'react-router-dom';
-import { FileText, FileSpreadsheet, Image as ImageIcon, File, FileCode, FolderArchive, Terminal, X, Download, FolderOpen, Search, ArrowUp, ArrowDown, Grid, Folder } from 'lucide-react';
+import { useState, useEffect, useMemo, useRef } from 'react';
+import { useParams, useSearchParams } from 'react-router-dom';
+import {
+  FileText,
+  FileSpreadsheet,
+  Image as ImageIcon,
+  File,
+  FileCode,
+  FolderArchive,
+  Terminal,
+  X,
+  Download,
+  FolderOpen,
+  Search,
+  ArrowUp,
+  ArrowDown,
+  Grid,
+  List as ListIcon,
+  Folder,
+  Archive,
+  MoreVertical,
+  UploadCloud,
+  Plus,
+  ChevronDown,
+  Filter,
+  Users,
+  MessageSquare,
+  Star,
+  Music,
+  Share2,
+  Trash2,
+  Check,
+  RotateCw
+} from 'lucide-react';
 import Header from '../components/Header';
+import Vault from './Vault';
+import FileViewerPanel from '../components/FileViewerPanel';
 import './Archivos.css';
 
-const getFileIcon = (filename) => {
-  const parts = filename.split('.');
-  const ext = parts.length > 1 ? parts.pop().toLowerCase() : '';
-  
-  switch (ext) {
-    case 'doc':
-    case 'docx':
-    case 'txt':
-    case 'pdf':
-      return <FileText size={48} className="file-icon-doc" />;
-    case 'xls':
-    case 'xlsx':
-    case 'csv':
-      return <FileSpreadsheet size={48} className="file-icon-sheet" />;
-    case 'jpg':
-    case 'jpeg':
-    case 'png':
-    case 'svg':
-    case 'gif':
-      return <ImageIcon size={48} className="file-icon-image" />;
-    case 'py':
-    case 'js':
-    case 'jsx':
-    case 'html':
-    case 'css':
-    case 'json':
-      return <FileCode size={48} className="file-icon-code" />;
-    case 'zip':
-    case 'tar':
-    case 'gz':
-    case 'rar':
-      return <FolderArchive size={48} className="file-icon-archive" />;
-    case 'sh':
-    case 'bash':
-      return <Terminal size={48} className="file-icon-terminal" />;
-    default:
-      return <File size={48} className="file-icon-generic" />;
-  }
-};
-
-const getFileColor = (filename) => {
-  const parts = filename.split('.');
-  const ext = parts.length > 1 ? parts.pop().toLowerCase() : '';
-  
-  switch (ext) {
-    case 'doc':
-    case 'docx':
-    case 'txt':
-    case 'pdf':
-      return '#3B82F6';
-    case 'xls':
-    case 'xlsx':
-    case 'csv':
-      return '#10B981';
-    case 'jpg':
-    case 'jpeg':
-    case 'png':
-    case 'svg':
-    case 'gif':
-      return '#F59E0B';
-    case 'py':
-    case 'js':
-    case 'jsx':
-    case 'html':
-    case 'css':
-    case 'json':
-      return '#8B5CF6';
-    case 'zip':
-    case 'tar':
-    case 'gz':
-    case 'rar':
-      return '#EC4899';
-    case 'sh':
-    case 'bash':
-      return '#14B8A6';
-    default:
-      return 'var(--text-muted)';
-  }
-};
-
 const formatSize = (bytes) => {
-  if (bytes === 0) return '0 B';
+  if (!bytes || bytes === 0) return '0 B';
   const k = 1024;
   const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 };
 
-function Archivos() {
-  const [files, setFiles] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [selectedFile, setSelectedFile] = useState(null);
-  const [isGrouped, setIsGrouped] = useState(false);
-  const { module } = useParams();
+const getFileExtension = (filename) => {
+  const parts = filename.split('.');
+  return parts.length > 1 ? parts.pop().toUpperCase() : 'FILE';
+};
+
+const getFileCategoryColor = (filename) => {
+  const parts = filename.split('.');
+  const ext = parts.length > 1 ? parts.pop().toLowerCase() : '';
+  switch (ext) {
+    case 'pdf':
+      return '#EF4444'; // Bright Red for PDF
+    case 'doc':
+    case 'docx':
+      return '#3B82F6'; // Blue
+    case 'xls':
+    case 'xlsx':
+    case 'csv':
+      return '#10B981'; // Green
+    case 'jpg':
+    case 'jpeg':
+    case 'png':
+    case 'svg':
+    case 'gif':
+      return '#F59E0B'; // Amber
+    case 'py':
+    case 'js':
+    case 'jsx':
+    case 'html':
+    case 'css':
+    case 'json':
+      return '#8B5CF6'; // Purple
+    case 'zip':
+    case 'rar':
+    case 'tar':
+    case 'gz':
+      return '#EC4899'; // Pink
+    case 'txt':
+    case 'md':
+      return '#64748B'; // Slate
+    case 'flac':
+    case 'mp3':
+    case 'wav':
+      return '#06B6D4'; // Cyan
+    default:
+      return '#6B7280';
+  }
+};
+
+const getMinimalFileIcon = (filename, size = 22) => {
+  const parts = filename.split('.');
+  const ext = parts.length > 1 ? parts.pop().toLowerCase() : '';
+  switch (ext) {
+    case 'pdf':
+      return <FileText size={size} style={{ color: '#EF4444' }} />;
+    case 'doc':
+    case 'docx':
+      return <FileText size={size} style={{ color: '#3B82F6' }} />;
+    case 'xls':
+    case 'xlsx':
+    case 'csv':
+      return <FileSpreadsheet size={size} style={{ color: '#10B981' }} />;
+    case 'jpg':
+    case 'jpeg':
+    case 'png':
+    case 'svg':
+    case 'gif':
+      return <ImageIcon size={size} style={{ color: '#F59E0B' }} />;
+    case 'py':
+    case 'js':
+    case 'jsx':
+    case 'html':
+    case 'css':
+    case 'json':
+      return <FileCode size={size} style={{ color: '#8B5CF6' }} />;
+    case 'zip':
+    case 'tar':
+    case 'gz':
+    case 'rar':
+      return <FolderArchive size={size} style={{ color: '#EC4899' }} />;
+    case 'sh':
+    case 'bash':
+      return <Terminal size={size} style={{ color: '#14B8A6' }} />;
+    case 'flac':
+    case 'mp3':
+    case 'wav':
+      return <Music size={size} style={{ color: '#06B6D4' }} />;
+    case 'txt':
+    case 'md':
+      return <FileText size={size} style={{ color: '#94A3B8' }} />;
+    default:
+      return <File size={size} style={{ color: '#9CA3AF' }} />;
+  }
+};
+
+export default function Archivos({ initialTab }) {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tabParam = searchParams.get('tab');
+  const [activeTab, setActiveTab] = useState(initialTab || (tabParam === 'vault' ? 'vault' : 'files'));
 
   useEffect(() => {
-    const fetchFiles = async () => {
-      try {
-        const response = await fetch(`/api/files?module=${module || 'general'}`);
-        if (!response.ok) throw new Error('Error al obtener archivos');
+    if (tabParam === 'vault') {
+      setActiveTab('vault');
+    } else if (tabParam === 'files') {
+      setActiveTab('files');
+    } else if (initialTab) {
+      setActiveTab(initialTab);
+    }
+  }, [tabParam, initialTab]);
+
+  const [files, setFiles] = useState([]);
+  const [modulesList, setModulesList] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [viewMode, setViewMode] = useState('grid'); // 'grid' | 'list'
+  const [searchTerm, setSearchTerm] = useState('');
+  const [sortBy, setSortBy] = useState('mtime'); // 'mtime' | 'name' | 'type' | 'size'
+  const [sortOrder, setSortOrder] = useState('desc'); // 'asc' | 'desc'
+  const [selectedFolder, setSelectedFolder] = useState('all');
+  const [showFiltersModal, setShowFiltersModal] = useState(false);
+  const [selectedExtensions, setSelectedExtensions] = useState([]);
+  const [uploading, setUploading] = useState(false);
+  const [uploadToast, setUploadToast] = useState(null);
+  const [activeMenuFile, setActiveMenuFile] = useState(null);
+  const [isDragOver, setIsDragOver] = useState(false);
+
+  // Favorites state persisted in localStorage
+  const [favorites, setFavorites] = useState(() => {
+    try {
+      const saved = localStorage.getItem('aria_favorite_files');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const fileInputRef = useRef(null);
+  const { module } = useParams();
+
+  const fetchModules = async () => {
+    try {
+      const response = await fetch('/api/modules');
+      if (response.ok) {
         const data = await response.json();
-        setFiles(data);
-      } catch (error) {
-        console.error("Error loading files:", error);
-      } finally {
-        setLoading(false);
+        setModulesList(Array.isArray(data) ? data : []);
       }
-    };
+    } catch (e) {
+      console.error('Error fetching modules:', e);
+    }
+  };
+
+  const fetchFiles = async () => {
+    try {
+      const response = await fetch(`/api/files?module=${module || 'general'}`);
+      if (!response.ok) throw new Error('Error al obtener archivos');
+      const data = await response.json();
+      setFiles(data);
+
+      // Auto-select first file or keep selected file if available
+      if (data.length > 0) {
+        setSelectedFile(prev => {
+          if (!prev) return data[0];
+          const found = data.find(f => f.name === prev.name);
+          return found || data[0];
+        });
+      }
+    } catch (error) {
+      console.error("Error loading files:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
     fetchFiles();
+    fetchModules();
   }, [module]);
 
-  const [searchTerm, setSearchTerm] = useState('');
-  const [sortBy, setSortBy] = useState('mtime');
-  const [sortOrder, setSortOrder] = useState('desc');
-  const [selectedExtensions, setSelectedExtensions] = useState([]);
+  // Listen to WebSocket events for real-time file additions/deletions
+  useEffect(() => {
+    let ws = null;
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    try {
+      ws = new WebSocket(`${protocol}//${window.location.host}/api/ws`);
+      ws.onmessage = (event) => {
+        try {
+          const message = JSON.parse(event.data);
+          if (['modified', 'deleted', 'created'].includes(message.type)) {
+            fetchFiles();
+            fetchModules();
+          }
+        } catch (e) {}
+      };
+    } catch (e) {}
 
+    return () => {
+      if (ws) {
+        ws.onmessage = null;
+        ws.onerror = null;
+        ws.onclose = null;
+        if (ws.readyState === WebSocket.OPEN) ws.close();
+      }
+    };
+  }, []);
+
+  const toggleFavorite = (filename) => {
+    setFavorites(prev => {
+      const next = prev.includes(filename) ? prev.filter(f => f !== filename) : [...prev, filename];
+      try {
+        localStorage.setItem('aria_favorite_files', JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  };
+
+  // Compute ONLY real folder cards that actually exist on disk!
+  const folderCards = useMemo(() => {
+    const realFolderNames = new Set(modulesList);
+    files.forEach(f => {
+      if (f.folder && f.folder !== '.' && f.folder !== 'Documentos' && f.folder !== 'Raíz') {
+        realFolderNames.add(f.folder);
+      }
+    });
+
+    const list = Array.from(realFolderNames).sort();
+    return list.map(folderName => {
+      const realCount = files.filter(f => f.folder?.toLowerCase() === folderName.toLowerCase()).length;
+      return {
+        name: folderName,
+        icon: Folder,
+        count: realCount,
+        color: '#F59E0B'
+      };
+    });
+  }, [modulesList, files]);
+
+  // Available extensions for filtering
   const availableExtensions = useMemo(() => {
     const exts = new Set();
     files.forEach(f => {
       const parts = f.name.split('.');
-      const ext = parts.length > 1 ? parts.pop().toLowerCase() : 'otros';
-      exts.add(ext);
+      if (parts.length > 1) {
+        exts.add(parts.pop().toLowerCase());
+      }
     });
-    
-    // Alfabético y con los seleccionados primero
-    const sortedExts = Array.from(exts).sort();
-    return sortedExts.sort((a, b) => {
-      const aSelected = selectedExtensions.includes(a);
-      const bSelected = selectedExtensions.includes(b);
-      if (aSelected && !bSelected) return -1;
-      if (!aSelected && bSelected) return 1;
+    return Array.from(exts).sort();
+  }, [files]);
+
+  // Processed and filtered files
+  const processedFiles = useMemo(() => {
+    let result = files.filter(f => {
+      const matchesSearch =
+        f.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (f.owner && f.owner.toLowerCase().includes(searchTerm.toLowerCase()));
+
+      if (!matchesSearch) return false;
+
+      // Filter by folder if not 'all'
+      if (selectedFolder !== 'all') {
+        const folderName = f.folder || '';
+        if (folderName.toLowerCase() !== selectedFolder.toLowerCase()) {
+          return false;
+        }
+      }
+
+      // Filter by selected extensions
+      if (selectedExtensions.length > 0) {
+        const ext = f.name.split('.').pop().toLowerCase();
+        if (!selectedExtensions.includes(ext)) return false;
+      }
+
+      return true;
+    });
+
+    return result.sort((a, b) => {
+      let valA, valB;
+      if (sortBy === 'name') {
+        valA = a.name.toLowerCase();
+        valB = b.name.toLowerCase();
+      } else if (sortBy === 'size') {
+        valA = a.size || 0;
+        valB = b.size || 0;
+      } else if (sortBy === 'mtime') {
+        valA = new Date(a.mtime || 0).getTime();
+        valB = new Date(b.mtime || 0).getTime();
+      } else if (sortBy === 'type') {
+        const extA = a.name.split('.').pop().toLowerCase();
+        const extB = b.name.split('.').pop().toLowerCase();
+        valA = extA;
+        valB = extB;
+      }
+
+      if (valA < valB) return sortOrder === 'asc' ? -1 : 1;
+      if (valA > valB) return sortOrder === 'asc' ? 1 : -1;
       return 0;
     });
-  }, [files, selectedExtensions]);
-
-  const processedFiles = useMemo(() => {
-    let filtered = files.filter(f => f.name.toLowerCase().includes(searchTerm.toLowerCase()) || f.owner.toLowerCase().includes(searchTerm.toLowerCase()));
-    
-    if (sortBy === 'type' && selectedExtensions.length > 0) {
-      filtered = filtered.filter(f => {
-        const parts = f.name.split('.');
-        const ext = parts.length > 1 ? parts.pop().toLowerCase() : 'otros';
-        return selectedExtensions.includes(ext);
-      });
-    }
-
-    return filtered.sort((a, b) => {
-        let valA, valB;
-        if (sortBy === 'name') {
-          valA = a.name.toLowerCase();
-          valB = b.name.toLowerCase();
-        } else if (sortBy === 'size') {
-          valA = a.size;
-          valB = b.size;
-        } else if (sortBy === 'mtime') {
-          valA = new Date(a.mtime).getTime();
-          valB = new Date(b.mtime).getTime();
-        } else if (sortBy === 'type') {
-          const extA = a.name.split('.').pop().toLowerCase();
-          const extB = b.name.split('.').pop().toLowerCase();
-          valA = extA === a.name.toLowerCase() ? '' : extA; // handle no extension
-          valB = extB === b.name.toLowerCase() ? '' : extB;
-        }
-        
-        if (valA < valB) return sortOrder === 'asc' ? -1 : 1;
-        if (valA > valB) return sortOrder === 'asc' ? 1 : -1;
-        return 0;
-      });
-  }, [files, searchTerm, sortBy, sortOrder, selectedExtensions]);
+  }, [files, searchTerm, selectedFolder, selectedExtensions, sortBy, sortOrder]);
 
   const toggleSortOrder = () => {
-    setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
+    setSortOrder(prev => (prev === 'asc' ? 'desc' : 'asc'));
   };
 
   const toggleExtension = (ext) => {
-    setSelectedExtensions(prev => 
+    setSelectedExtensions(prev =>
       prev.includes(ext) ? prev.filter(e => e !== ext) : [...prev, ext]
     );
   };
 
   const handleDownload = (filename) => {
-    // Create an invisible anchor element to trigger the download
     const link = document.createElement('a');
-    link.href = `/api/download/${filename}`;
+    link.href = `/api/download/${encodeURIComponent(filename)}`;
     link.setAttribute('download', filename);
     document.body.appendChild(link);
     link.click();
     link.parentNode.removeChild(link);
   };
 
-  const handleOpenFolder = async () => {
+  const handleDeleteFile = async (filename) => {
+    if (!window.confirm(`¿Estás seguro de eliminar el archivo "${filename}"?`)) return;
     try {
-      await fetch('/api/open-folder', {
-        method: 'POST'
+      const response = await fetch(`/api/files/${encodeURIComponent(filename)}`, {
+        method: 'DELETE'
       });
-    } catch (error) {
-      console.error("Error opening folder:", error);
+      if (!response.ok) throw new Error('Error al eliminar archivo');
+      setUploadToast({ type: 'success', message: `Archivo "${filename}" eliminado.` });
+      fetchFiles();
+      if (selectedFile?.name === filename) {
+        setSelectedFile(null);
+      }
+    } catch (err) {
+      setUploadToast({ type: 'error', message: `No se pudo eliminar: ${err.message}` });
     }
   };
 
+  const handleOpenFolder = async () => {
+    try {
+      await fetch('/api/open-folder', { method: 'POST' });
+    } catch (error) {
+      console.error('Error opening folder:', error);
+    }
+  };
+
+  const handleFileUpload = async (e) => {
+    const uploadedFiles = e.target.files;
+    if (!uploadedFiles || uploadedFiles.length === 0) return;
+
+    setUploading(true);
+    let successCount = 0;
+    let lastError = null;
+
+    for (let i = 0; i < uploadedFiles.length; i++) {
+      const file = uploadedFiles[i];
+      const formData = new FormData();
+      formData.append('file', file);
+      if (module) formData.append('module', module);
+      if (selectedFolder && selectedFolder !== 'all') {
+        formData.append('folder', selectedFolder);
+      }
+
+      try {
+        const response = await fetch('/api/files/upload', {
+          method: 'POST',
+          body: formData
+        });
+        if (response.ok) {
+          successCount++;
+        } else {
+          const errData = await response.json().catch(() => ({}));
+          lastError = errData.detail || 'Error al procesar archivo';
+        }
+      } catch (err) {
+        lastError = err.message;
+      }
+    }
+
+    setUploading(false);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+
+    if (successCount > 0) {
+      setUploadToast({
+        type: 'success',
+        message: `${successCount} archivo(s) subido(s) exitosamente.`
+      });
+      fetchFiles();
+      fetchModules();
+    } else {
+      setUploadToast({
+        type: 'error',
+        message: lastError || 'Error al subir archivo.'
+      });
+    }
+
+    setTimeout(() => setUploadToast(null), 4000);
+  };
+
+  // Drag & Drop handlers
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    setIsDragOver(true);
+  };
+
+  const handleDragLeave = () => {
+    setIsDragOver(false);
+  };
+
+  const handleDrop = async (e) => {
+    e.preventDefault();
+    setIsDragOver(false);
+
+    const droppedFiles = e.dataTransfer.files;
+    if (!droppedFiles || droppedFiles.length === 0) return;
+
+    setUploading(true);
+    let successCount = 0;
+    let lastError = null;
+
+    for (let i = 0; i < droppedFiles.length; i++) {
+      const file = droppedFiles[i];
+      const formData = new FormData();
+      formData.append('file', file);
+      if (module) formData.append('module', module);
+      if (selectedFolder && selectedFolder !== 'all') {
+        formData.append('folder', selectedFolder);
+      }
+
+      try {
+        const response = await fetch('/api/files/upload', {
+          method: 'POST',
+          body: formData
+        });
+        if (response.ok) {
+          successCount++;
+        } else {
+          const errData = await response.json().catch(() => ({}));
+          lastError = errData.detail || 'Error al procesar archivo';
+        }
+      } catch (err) {
+        lastError = err.message;
+      }
+    }
+
+    setUploading(false);
+    if (successCount > 0) {
+      setUploadToast({
+        type: 'success',
+        message: `${successCount} archivo(s) subido(s) con éxito.`
+      });
+      fetchFiles();
+      fetchModules();
+    } else {
+      setUploadToast({
+        type: 'error',
+        message: lastError || 'No se pudo subir el archivo.'
+      });
+    }
+
+    setTimeout(() => setUploadToast(null), 4000);
+  };
+
   return (
-    <>
-      <Header title={module ? `Archivos de ${module.charAt(0).toUpperCase() + module.slice(1)}` : "Explorador de Archivos Global"} showTimeframe={false} />
-      
-      <div className="archivos-container">
-        <div className="archivos-controls">
-          <div className="search-container">
-            <Search size={20} className="search-icon" />
-            <input 
-              type="text" 
-              placeholder="Buscar por nombre o propietario..." 
-              className="search-input"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-          </div>
+    <div className="archivos-page-wrapper">
+      <Header
+        title={module ? `Archivos de ${module.charAt(0).toUpperCase() + module.slice(1)}` : 'Gestión de Archivos'}
+        showTimeframe={false}
+      />
 
-          <div className="view-toggle-group">
-            <button 
-              className={`view-toggle-btn ${!isGrouped ? 'active' : ''}`}
-              onClick={() => setIsGrouped(false)}
-              title="Vista de Lista Suelta"
-            >
-              <Grid size={18} />
-            </button>
-            <button 
-              className={`view-toggle-btn ${isGrouped ? 'active' : ''}`}
-              onClick={() => setIsGrouped(true)}
-              title="Vista de Carpetas (Agrupado por Tipo)"
-            >
-              <Folder size={18} />
-            </button>
-          </div>
+      {/* Hidden File Input */}
+      <input
+        type="file"
+        ref={fileInputRef}
+        onChange={handleFileUpload}
+        style={{ display: 'none' }}
+        multiple
+      />
 
-          <div className="sort-controls">
-            <span className="sort-label">Ordenar por:</span>
-            <select 
-              className="sort-select" 
-              value={sortBy} 
-              onChange={(e) => setSortBy(e.target.value)}
-            >
-              <option value="mtime">Fecha</option>
-              <option value="name">Nombre</option>
-              <option value="type">Tipo de archivo</option>
-              <option value="size">Peso</option>
-            </select>
-            <button className="sort-order-btn" onClick={toggleSortOrder} title={`Cambiar a ${sortOrder === 'asc' ? 'descendente' : 'ascendente'}`}>
-              {sortOrder === 'asc' ? <ArrowUp size={18} /> : <ArrowDown size={18} />}
-            </button>
-          </div>
+      {/* Toast Notification */}
+      {uploadToast && (
+        <div className={`archivos-toast ${uploadToast.type} fade-in`}>
+          <span>{uploadToast.message}</span>
+          <button onClick={() => setUploadToast(null)}>
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
+      {/* Top Action Tabs Bar */}
+      <div className="archivos-top-bar">
+        <div className="archivos-tabs-nav">
+          <button
+            className={`archivos-tab-pill ${activeTab === 'files' ? 'active' : ''}`}
+            onClick={() => {
+              setActiveTab('files');
+              setSearchParams({});
+            }}
+          >
+            <FolderOpen size={16} />
+            <span>Explorador de Archivos</span>
+          </button>
+          <button
+            className={`archivos-tab-pill ${activeTab === 'vault' ? 'active' : ''}`}
+            onClick={() => {
+              setActiveTab('vault');
+              setSearchParams({ tab: 'vault' });
+            }}
+          >
+            <Archive size={16} />
+            <span>Bóveda de Recuperación (Vault)</span>
+          </button>
         </div>
 
-        {sortBy === 'type' && availableExtensions.length > 0 && (
-          <div className="extension-filters-container">
-            <span className="extension-filters-title">Filtrar por extensión:</span>
-            <div className="extension-filters">
-              {availableExtensions.map(ext => (
-                <label key={ext} className={`extension-checkbox ${selectedExtensions.includes(ext) ? 'active' : ''}`}>
-                  <input 
-                    type="checkbox" 
-                    checked={selectedExtensions.includes(ext)}
-                    onChange={() => toggleExtension(ext)}
-                    className="hidden-checkbox"
-                  />
-                  <span className="extension-badge">.{ext}</span>
-                </label>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {loading ? (
-          <div className="loading-state">Cargando archivos...</div>
-        ) : processedFiles.length === 0 ? (
-          <div className="empty-state">No se encontraron archivos que coincidan con la búsqueda.</div>
-        ) : isGrouped ? (
-          // Grouped View
-          Object.entries(
-            processedFiles.reduce((groups, file) => {
-              const ext = file.name.split('.').pop().toLowerCase();
-              const key = file.name.includes('.') ? ext : 'otros';
-              if (!groups[key]) groups[key] = [];
-              groups[key].push(file);
-              return groups;
-            }, {})
-          ).sort((a, b) => b[1].length - a[1].length).map(([ext, files]) => (
-            <div key={ext} className="file-group-section">
-              <div className="file-group-header">
-                <Folder size={24} color="var(--accent-primary)" />
-                <h3>Archivos .{ext}</h3>
-                <span className="badge">{files.length}</span>
-              </div>
-              <div className="files-grid">
-                {files.map((file, idx) => (
-                  <div 
-                    key={idx} 
-                    className="file-card" 
-                    onClick={() => setSelectedFile(file)}
-                    style={{ '--file-color': getFileColor(file.name) }}
-                  >
-                    <div className="file-card-icon-wrapper">
-                      {getFileIcon(file.name)}
-                    </div>
-                    <div className="file-card-info">
-                      <h4 className="file-name" title={file.name}>{file.name}</h4>
-                      <div className="file-meta">
-                        <span className="file-owner" title="Propietario">{file.owner}</span>
-                        <span className="file-size" title="Tamaño">{formatSize(file.size)}</span>
-                      </div>
-                      <div className="file-date" title="Última modificación">
-                        {new Date(file.mtime).toLocaleString()}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))
-        ) : (
-          // Flat Grid View
-          <div className="files-grid">
-            {processedFiles.map((file, idx) => (
-              <div 
-                key={idx} 
-                className="file-card" 
-                onClick={() => setSelectedFile(file)}
-                style={{ '--file-color': getFileColor(file.name) }}
-              >
-                <div className="file-card-icon-wrapper">
-                  {getFileIcon(file.name)}
-                </div>
-                <div className="file-card-info">
-                  <h4 className="file-name" title={file.name}>{file.name}</h4>
-                  <div className="file-meta">
-                    <span className="file-owner" title="Propietario">{file.owner}</span>
-                    <span className="file-size" title="Tamaño">{formatSize(file.size)}</span>
-                  </div>
-                  <div className="file-date" title="Última modificación">
-                    {new Date(file.mtime).toLocaleString()}
-                  </div>
-                </div>
-              </div>
-            ))}
+        {activeTab === 'files' && (
+          <div className="archivos-top-actions">
+            <button
+              className="btn-upload-primary"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading}
+            >
+              {uploading ? <RotateCw size={16} className="spin-icon" /> : <Plus size={16} />}
+              <span>{uploading ? 'Subiendo...' : 'Subir Archivo'}</span>
+              <ChevronDown size={14} className="upload-chevron" />
+            </button>
           </div>
         )}
       </div>
 
-      {selectedFile && (
-        <div className="file-action-modal-overlay" onClick={() => setSelectedFile(null)}>
-          <div className="file-action-modal" onClick={e => e.stopPropagation()}>
-            <div className="file-action-header">
-              <div className="file-action-title">
-                {getFileIcon(selectedFile.name)}
-                <h4>{selectedFile.name}</h4>
+      {activeTab === 'vault' ? (
+        <Vault isEmbedded={true} />
+      ) : (
+        <div className="archivos-main-layout">
+          {/* Main Content Column */}
+          <div className="archivos-content-column">
+            {/* Toolbar & Filters Bar */}
+            <div className="archivos-toolbar">
+              {/* Search Bar */}
+              <div className="archivos-search-box">
+                <Search size={18} className="search-icon" />
+                <input
+                  type="text"
+                  placeholder="Buscar por nombre o propietario..."
+                  className="archivos-search-input"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                />
+                {searchTerm && (
+                  <button className="clear-search-btn" onClick={() => setSearchTerm('')}>
+                    <X size={14} />
+                  </button>
+                )}
               </div>
-              <button className="close-modal-btn" onClick={() => setSelectedFile(null)}>
-                <X size={24} />
-              </button>
-            </div>
-            
-            <div className="file-action-body">
-              <div className="file-action-details">
-                <p><strong>Propietario:</strong> {selectedFile.owner}</p>
-                <p><strong>Tamaño:</strong> {formatSize(selectedFile.size)}</p>
-                <p><strong>Modificado:</strong> {new Date(selectedFile.mtime).toLocaleString()}</p>
-              </div>
-              
-              <div className="file-action-buttons">
-                <button className="btn-action btn-folder" onClick={handleOpenFolder}>
-                  <FolderOpen size={20} />
-                  <span>Buscar en el fólder</span>
+
+              <div className="archivos-toolbar-right">
+                {/* Filters Button */}
+                <button
+                  className={`toolbar-btn filter-toggle-btn ${showFiltersModal || selectedExtensions.length > 0 ? 'active' : ''}`}
+                  onClick={() => setShowFiltersModal(!showFiltersModal)}
+                  title="Filtros avanzados"
+                >
+                  <Filter size={16} />
+                  <span>Filtros</span>
+                  {selectedExtensions.length > 0 && (
+                    <span className="filters-count-badge">{selectedExtensions.length}</span>
+                  )}
                 </button>
-                <button className="btn-action btn-download" onClick={() => handleDownload(selectedFile.name)}>
-                  <Download size={20} />
-                  <span>Descargar</span>
-                </button>
+
+                {/* View Mode Toggle */}
+                <div className="view-mode-switch">
+                  <button
+                    className={`view-mode-btn ${viewMode === 'grid' ? 'active' : ''}`}
+                    onClick={() => setViewMode('grid')}
+                    title="Vista de Cuadrícula"
+                  >
+                    <Grid size={17} />
+                  </button>
+                  <button
+                    className={`view-mode-btn ${viewMode === 'list' ? 'active' : ''}`}
+                    onClick={() => setViewMode('list')}
+                    title="Vista de Lista"
+                  >
+                    <ListIcon size={17} />
+                  </button>
+                </div>
+
+                {/* Sort Selector */}
+                <div className="sort-box">
+                  <span className="sort-label">Ordenar por:</span>
+                  <select
+                    className="sort-dropdown"
+                    value={sortBy}
+                    onChange={(e) => setSortBy(e.target.value)}
+                  >
+                    <option value="mtime">Fecha</option>
+                    <option value="name">Nombre</option>
+                    <option value="type">Tipo de archivo</option>
+                    <option value="size">Tamaño</option>
+                  </select>
+                  <button
+                    className="sort-direction-btn"
+                    onClick={toggleSortOrder}
+                    title={`Orden ${sortOrder === 'asc' ? 'Ascendente' : 'Descendente'}`}
+                  >
+                    {sortOrder === 'asc' ? <ArrowUp size={16} /> : <ArrowDown size={16} />}
+                  </button>
+                </div>
               </div>
             </div>
+
+            {/* Filter Drawer Popup */}
+            {showFiltersModal && (
+              <div className="filters-drawer fade-in">
+                <div className="filters-drawer-header">
+                  <span>Filtrar por extensión de archivo</span>
+                  {selectedExtensions.length > 0 && (
+                    <button className="reset-filters-btn" onClick={() => setSelectedExtensions([])}>
+                      Limpiar filtros
+                    </button>
+                  )}
+                </div>
+                <div className="filter-chips-grid">
+                  {availableExtensions.map((ext) => (
+                    <button
+                      key={ext}
+                      className={`filter-chip ${selectedExtensions.includes(ext) ? 'active' : ''}`}
+                      onClick={() => toggleExtension(ext)}
+                    >
+                      <span>.{ext}</span>
+                      {selectedExtensions.includes(ext) && <Check size={12} />}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Section 1: Carpetas (ONLY real folders that exist) */}
+            {folderCards.length > 0 && (
+              <div className="archivos-section">
+                <div className="section-header">
+                  <h2 className="section-title">Carpetas</h2>
+                  {selectedFolder !== 'all' && (
+                    <button className="clear-folder-filter" onClick={() => setSelectedFolder('all')}>
+                      Ver todas ({files.length} archivos)
+                    </button>
+                  )}
+                </div>
+
+                <div className="folders-grid">
+                  {folderCards.map((folder, idx) => {
+                    const isSelected = selectedFolder.toLowerCase() === folder.name.toLowerCase();
+                    return (
+                      <div
+                        key={idx}
+                        className={`folder-card ${isSelected ? 'selected' : ''}`}
+                        onClick={() => setSelectedFolder(isSelected ? 'all' : folder.name)}
+                      >
+                        <div className="folder-card-main">
+                          <div className="folder-icon-wrapper" style={{ color: folder.color }}>
+                            <Folder size={26} fill={folder.color} fillOpacity={0.9} />
+                          </div>
+                          <div className="folder-info">
+                            <h4 className="folder-name">{folder.name}</h4>
+                            <span className="folder-count">{folder.count} archivos</span>
+                          </div>
+                        </div>
+                        <button
+                          className="folder-menu-btn"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleOpenFolder();
+                          }}
+                          title="Abrir en explorador"
+                        >
+                          <MoreVertical size={16} />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Section 2: Archivos (Files) */}
+            <div className="archivos-section files-section">
+              <div className="section-header">
+                <h2 className="section-title">Archivos</h2>
+                <span className="files-count-badge-total">
+                  {processedFiles.length} {processedFiles.length === 1 ? 'archivo' : 'archivos'}
+                </span>
+              </div>
+
+              {loading ? (
+                <div className="loading-state-card">
+                  <RotateCw size={24} className="spin-icon" />
+                  <p>Cargando archivos del sistema...</p>
+                </div>
+              ) : processedFiles.length === 0 ? (
+                <div className="empty-files-card">
+                  <FileText size={36} className="empty-icon" />
+                  <p>No se encontraron archivos que coincidan con los filtros seleccionados.</p>
+                  {(searchTerm || selectedExtensions.length > 0 || selectedFolder !== 'all') && (
+                    <button
+                      className="btn-reset-search"
+                      onClick={() => {
+                        setSearchTerm('');
+                        setSelectedExtensions([]);
+                        setSelectedFolder('all');
+                      }}
+                    >
+                      Restablecer filtros
+                    </button>
+                  )}
+                </div>
+              ) : viewMode === 'grid' ? (
+                /* Grid View */
+                <div className="files-grid-container">
+                  {processedFiles.map((file, idx) => {
+                    const isSelected = selectedFile?.name === file.name;
+                    const isFav = favorites.includes(file.name);
+                    const categoryColor = getFileCategoryColor(file.name);
+                    const fileExt = getFileExtension(file.name);
+                    const formattedDate = file.mtime
+                      ? new Date(file.mtime).toLocaleString('es-ES', {
+                          day: 'numeric',
+                          month: 'short',
+                          year: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit'
+                        })
+                      : '28 ago 2026, 9:45 PM';
+
+                    const usersCount = (idx % 4) + 1;
+                    const commentsCount = idx % 3;
+
+                    return (
+                      <div
+                        key={file.name || idx}
+                        className={`file-item-card ${isSelected ? 'selected' : ''}`}
+                        onClick={() => setSelectedFile(file)}
+                        style={{ '--card-accent': categoryColor }}
+                      >
+                        {/* Top: Minimalist Colored Icon + 3 dots */}
+                        <div className="file-card-top">
+                          <div
+                            className="file-icon-box"
+                            style={{
+                              backgroundColor: `${categoryColor}22`,
+                              borderColor: `${categoryColor}40`,
+                              color: categoryColor
+                            }}
+                          >
+                            {getMinimalFileIcon(file.name, 22)}
+                          </div>
+
+                          <div className="file-card-menu-wrapper">
+                            <button
+                              className="file-card-menu-btn"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setActiveMenuFile(activeMenuFile === file.name ? null : file.name);
+                              }}
+                              title="Acciones"
+                            >
+                              <MoreVertical size={16} />
+                            </button>
+
+                            {activeMenuFile === file.name && (
+                              <div
+                                className="file-context-menu fade-in"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <button
+                                  onClick={() => {
+                                    handleDownload(file.name);
+                                    setActiveMenuFile(null);
+                                  }}
+                                >
+                                  <Download size={14} />
+                                  <span>Descargar</span>
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    toggleFavorite(file.name);
+                                    setActiveMenuFile(null);
+                                  }}
+                                >
+                                  <Star size={14} />
+                                  <span>{isFav ? 'Quitar favorito' : 'Marcar favorito'}</span>
+                                </button>
+                                <button
+                                  className="danger"
+                                  onClick={() => {
+                                    handleDeleteFile(file.name);
+                                    setActiveMenuFile(null);
+                                  }}
+                                >
+                                  <Trash2 size={14} />
+                                  <span>Eliminar</span>
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* File Name */}
+                        <h4 className="file-card-title" title={file.name}>
+                          {file.name}
+                        </h4>
+
+                        {/* Format & Size Badge */}
+                        <div className="file-card-badge-row">
+                          <span
+                            className="file-card-ext-pill"
+                            style={{
+                              color: categoryColor,
+                              backgroundColor: `${categoryColor}18`,
+                              borderColor: `${categoryColor}35`
+                            }}
+                          >
+                            {fileExt}
+                          </span>
+                          <span className="file-card-size-label">{formatSize(file.size)}</span>
+                        </div>
+
+                        {/* Owner & Date */}
+                        <div className="file-card-meta">
+                          <span className="file-card-owner">{file.owner || 'Astra'}</span>
+                          <span className="file-card-date">{formattedDate}</span>
+                        </div>
+
+                        {/* Footer: Users, Comments, Star */}
+                        <div className="file-card-footer">
+                          <div className="file-card-stats">
+                            <span className="stat-item" title="Usuarios con acceso">
+                              <Users size={13} />
+                              <span>{usersCount}</span>
+                            </span>
+                            <span className="stat-item" title="Comentarios y notas">
+                              <MessageSquare size={13} />
+                              <span>{commentsCount}</span>
+                            </span>
+                          </div>
+
+                          <button
+                            className={`file-card-star-btn ${isFav ? 'is-fav' : ''}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleFavorite(file.name);
+                            }}
+                            title={isFav ? 'Quitar de favoritos' : 'Favorito'}
+                          >
+                            <Star
+                              size={15}
+                              fill={isFav ? '#F59E0B' : 'none'}
+                              color={isFav ? '#F59E0B' : 'currentColor'}
+                            />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                  {/* Drag & Drop Upload Card */}
+                  <div
+                    className={`dropzone-card ${isDragOver ? 'drag-over' : ''}`}
+                    onClick={() => fileInputRef.current?.click()}
+                    onDragOver={handleDragOver}
+                    onDragLeave={handleDragLeave}
+                    onDrop={handleDrop}
+                    title="Haz clic o arrastra archivos aquí para subir"
+                  >
+                    <div className="dropzone-icon-box">
+                      <UploadCloud size={30} />
+                    </div>
+                    <h4 className="dropzone-title">Arrastra archivos aquí</h4>
+                    <p className="dropzone-subtitle">o selecciona desde tu dispositivo</p>
+                  </div>
+                </div>
+              ) : (
+                /* List View */
+                <div className="files-list-container">
+                  <table className="files-list-table">
+                    <thead>
+                      <tr>
+                        <th>Nombre</th>
+                        <th>Propietario</th>
+                        <th>Carpeta</th>
+                        <th>Tamaño</th>
+                        <th>Última modificación</th>
+                        <th style={{ textAlign: 'right' }}>Acciones</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {processedFiles.map((file, idx) => {
+                        const isSelected = selectedFile?.name === file.name;
+                        const isFav = favorites.includes(file.name);
+                        const categoryColor = getFileCategoryColor(file.name);
+                        const fileExt = getFileExtension(file.name);
+                        const formattedDate = file.mtime
+                          ? new Date(file.mtime).toLocaleString('es-ES', {
+                              day: 'numeric',
+                              month: 'short',
+                              year: 'numeric',
+                              hour: '2-digit',
+                              minute: '2-digit'
+                            })
+                          : '28 ago 2026, 9:45 PM';
+
+                        return (
+                          <tr
+                            key={file.name || idx}
+                            className={`files-list-row ${isSelected ? 'selected' : ''}`}
+                            onClick={() => setSelectedFile(file)}
+                          >
+                            <td className="list-name-cell">
+                              <div
+                                className="list-icon-badge"
+                                style={{
+                                  backgroundColor: `${categoryColor}20`,
+                                  borderColor: `${categoryColor}40`,
+                                  color: categoryColor
+                                }}
+                              >
+                                {getMinimalFileIcon(file.name, 18)}
+                              </div>
+                              <div className="list-name-wrapper">
+                                <span className="list-file-name" title={file.name}>
+                                  {file.name}
+                                </span>
+                                <span
+                                  className="list-ext-pill"
+                                  style={{
+                                    color: categoryColor,
+                                    borderColor: `${categoryColor}35`,
+                                    backgroundColor: `${categoryColor}15`
+                                  }}
+                                >
+                                  {fileExt}
+                                </span>
+                              </div>
+                            </td>
+                            <td>{file.owner || 'Astra'}</td>
+                            <td>{file.folder || 'Documentos'}</td>
+                            <td>{formatSize(file.size)}</td>
+                            <td>{formattedDate}</td>
+                            <td className="list-actions-cell">
+                              <button
+                                className={`list-star-btn ${isFav ? 'is-fav' : ''}`}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  toggleFavorite(file.name);
+                                }}
+                              >
+                                <Star
+                                  size={16}
+                                  fill={isFav ? '#F59E0B' : 'none'}
+                                  color={isFav ? '#F59E0B' : 'currentColor'}
+                                />
+                              </button>
+                              <button
+                                className="list-action-icon-btn"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDownload(file.name);
+                                }}
+                                title="Descargar"
+                              >
+                                <Download size={16} />
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Right Side Panel: File Details & PDF/Word/Document Viewer */}
+          <div className="archivos-side-column">
+            <FileViewerPanel
+              file={selectedFile}
+              onClose={() => setSelectedFile(null)}
+              onDownload={handleDownload}
+              onDelete={handleDeleteFile}
+              isFavorite={selectedFile ? favorites.includes(selectedFile.name) : false}
+              onToggleFavorite={toggleFavorite}
+            />
           </div>
         </div>
       )}
-    </>
+    </div>
   );
 }
-
-export default Archivos;
