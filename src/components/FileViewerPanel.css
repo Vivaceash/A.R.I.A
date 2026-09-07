@@ -221,8 +221,8 @@
   border-radius: 12px;
   overflow: hidden;
   position: relative;
-  min-height: 200px;
-  max-height: 240px;
+  min-height: 240px;
+  max-height: 380px;
   display: flex;
   flex-direction: column;
 }
@@ -295,7 +295,8 @@
 
 .fvp-pdf-canvas-wrapper {
   flex: 1;
-  height: 180px;
+  height: 100%;
+  min-height: 240px;
   overflow: hidden;
   transition: transform 0.2s ease;
 }
@@ -357,10 +358,9 @@
 .fvp-word-sheet-wrapper {
   flex: 1;
   overflow-y: auto;
-  padding: 10px;
+  padding: 14px;
   background: #0f121a;
-  display: flex;
-  justify-content: center;
+  display: block;
 }
 
 .fvp-doc-loading {
@@ -378,15 +378,47 @@
   background: #ffffff;
   color: #1e293b;
   border-radius: 6px;
-  padding: 16px 18px;
+  padding: 18px 20px;
   width: 100%;
-  max-width: 320px;
-  min-height: 190px;
+  max-width: 330px;
+  margin: 0 auto;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
   font-family: 'Calibri', 'Inter', -apple-system, sans-serif;
-  transition: transform 0.2s ease;
-  font-size: 11px;
-  line-height: 1.45;
+  font-size: 11.5px;
+  line-height: 1.5;
+  box-sizing: border-box;
+}
+
+.fvp-word-preview-footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 12px;
+  background: #151821;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.fvp-word-open-full-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(59, 130, 246, 0.12);
+  border: 1px solid rgba(59, 130, 246, 0.25);
+  color: #60A5FA;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 11.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  width: 100%;
+  justify-content: center;
+}
+
+.fvp-word-open-full-btn:hover {
+  background: rgba(59, 130, 246, 0.22);
+  color: #93C5FD;
+  border-color: rgba(59, 130, 246, 0.4);
 }
 
 .fvp-word-sheet-header {
@@ -444,6 +476,32 @@
 .fvp-word-html-content .doc-table td {
   border: 1px solid #cbd5e1;
   padding: 4px 6px;
+}
+
+.fvp-word-html-content .doc-image-container {
+  display: flex;
+  justify-content: center;
+  margin: 10px 0;
+}
+
+.fvp-word-html-content .doc-embedded-img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.fvp-word-html-content.full-view .doc-image-container {
+  display: flex;
+  justify-content: center;
+  margin: 20px 0;
+}
+
+.fvp-word-html-content.full-view .doc-embedded-img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
 }
 
 .fvp-word-fallback {
@@ -1115,4 +1173,186 @@
 @keyframes modalFadeIn {
   from { opacity: 0; transform: scale(0.98); }
   to { opacity: 1; transform: scale(1); }
+}
+
+/* ================= Light Theme Overrides ================= */
+[data-theme='light'] .file-viewer-panel {
+  background: #FFFFFF;
+  border-color: #E2E8F0;
+  box-shadow: -4px 0 24px rgba(0, 0, 0, 0.08);
+}
+
+[data-theme='light'] .fvp-header {
+  border-bottom-color: #E2E8F0;
+}
+
+[data-theme='light'] .fvp-title {
+  color: #0F172A;
+}
+
+[data-theme='light'] .fvp-path-hint {
+  color: #64748B;
+}
+
+[data-theme='light'] .fvp-icon-btn {
+  color: #64748B;
+  border-color: #E2E8F0;
+  background: transparent;
+}
+
+[data-theme='light'] .fvp-icon-btn:hover {
+  background: #F1F5F9;
+  color: #0F172A;
+}
+
+[data-theme='light'] .fvp-tabs {
+  background: #F8FAFC;
+  border-bottom-color: #E2E8F0;
+}
+
+[data-theme='light'] .fvp-tab {
+  color: #64748B;
+}
+
+[data-theme='light'] .fvp-tab:hover {
+  color: #0F172A;
+}
+
+[data-theme='light'] .fvp-tab.active {
+  background: #FFFFFF;
+  color: #7C3AED;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+[data-theme='light'] .fvp-visualizer-container {
+  background: #F8FAFC;
+  border-color: #E2E8F0;
+}
+
+[data-theme='light'] .fvp-pdf-controls,
+[data-theme='light'] .fvp-word-toolbar {
+  background: #FFFFFF;
+  border-bottom-color: #E2E8F0;
+}
+
+[data-theme='light'] .fvp-zoom-btn,
+[data-theme='light'] .fvp-expand-btn {
+  border-color: #E2E8F0;
+  color: #475569;
+}
+
+[data-theme='light'] .fvp-zoom-btn:hover:not(:disabled),
+[data-theme='light'] .fvp-expand-btn:hover {
+  background: #F1F5F9;
+  color: #0F172A;
+}
+
+[data-theme='light'] .fvp-zoom-label {
+  color: #475569;
+}
+
+[data-theme='light'] .fvp-word-viewer {
+  background: #F8FAFC;
+}
+
+[data-theme='light'] .fvp-word-sheet-wrapper {
+  background: #E2E8F0;
+}
+
+[data-theme='light'] .fvp-word-preview-footer {
+  background: #FFFFFF;
+  border-top-color: #E2E8F0;
+}
+
+[data-theme='light'] .fvp-word-open-full-btn {
+  background: rgba(124, 58, 237, 0.08);
+  border-color: rgba(124, 58, 237, 0.2);
+  color: #7C3AED;
+}
+
+[data-theme='light'] .fvp-word-open-full-btn:hover {
+  background: rgba(124, 58, 237, 0.15);
+  color: #6D28D9;
+}
+
+[data-theme='light'] .fvp-word-title-tag {
+  color: #2563EB;
+}
+
+[data-theme='light'] .fvp-info-grid {
+  background: #F8FAFC;
+  border-color: #E2E8F0;
+}
+
+[data-theme='light'] .fvp-meta-card {
+  background: #F8FAFC;
+  border-color: #E2E8F0;
+}
+
+[data-theme='light'] .fvp-meta-label {
+  color: #64748B;
+}
+
+[data-theme='light'] .fvp-meta-val {
+  color: #0F172A;
+}
+
+[data-theme='light'] .fvp-note-box {
+  background: #F8FAFC;
+  border-color: #E2E8F0;
+  color: #0F172A;
+}
+
+[data-theme='light'] .fvp-note-box:focus {
+  background: #FFFFFF;
+  border-color: #8B5CF6;
+}
+
+[data-theme='light'] .fvp-tag-chip {
+  background: #F1F5F9;
+  border-color: #E2E8F0;
+  color: #475569;
+}
+
+[data-theme='light'] .fvp-tag-input {
+  background: #FFFFFF;
+  border-color: #E2E8F0;
+  color: #0F172A;
+}
+
+[data-theme='light'] .fvp-action-btn {
+  background: #FFFFFF;
+  border-color: #E2E8F0;
+  color: #0F172A;
+}
+
+[data-theme='light'] .fvp-action-btn:hover {
+  background: #F8FAFC;
+  border-color: #CBD5E1;
+}
+
+[data-theme='light'] .fvp-security-badge {
+  background: #F8FAFC;
+  border-color: #E2E8F0;
+}
+
+[data-theme='light'] .fvp-security-title {
+  color: #0F172A;
+}
+
+[data-theme='light'] .fvp-security-sub {
+  color: #64748B;
+}
+
+[data-theme='light'] .fvp-modal-card {
+  background: #FFFFFF;
+  border-color: #E2E8F0;
+}
+
+[data-theme='light'] .fvp-modal-header {
+  border-bottom-color: #E2E8F0;
+}
+
+[data-theme='light'] .fvp-modal-title {
+  color: #0F172A;
 }

@@ -26,20 +26,20 @@ const VaultGraph = () => {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('ALL');
-  const [showLabels, setShowLabels] = useState(true);
+  const [showLabels, setShowLabels] = useState(false);
   const [selectedNode, setSelectedNode] = useState(null);
   const [noteContent, setNoteContent] = useState(null);
   const [loadingNote, setLoadingNote] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showControls, setShowControls] = useState(false);
 
-  // Physics params
+  // Physics params (calibrated for organic spread and zero crowding)
   const [params, setParams] = useState({
-    repulsion: 1800,
-    springLength: 120,
-    springStrength: 0.05,
-    damping: 0.88,
-    gravity: 0.03,
+    repulsion: 7200,
+    springLength: 180,
+    springStrength: 0.035,
+    damping: 0.87,
+    gravity: 0.0035,
   });
 
   // State refs for animation loop
@@ -65,24 +65,25 @@ const VaultGraph = () => {
       const data = await res.json();
       setGraphData(data);
 
-      const width = containerRef.current ? containerRef.current.clientWidth : 800;
-      const height = containerRef.current ? containerRef.current.clientHeight : 600;
+      const width = containerRef.current ? containerRef.current.clientWidth : 900;
+      const height = containerRef.current ? containerRef.current.clientHeight : 700;
 
-      // Initialize nodes with positions
+      // Initialize nodes with positions using a golden spiral distribution
       const existingPosMap = new Map();
       nodesRef.current.forEach(n => existingPosMap.set(n.id, { x: n.x, y: n.y, vx: n.vx, vy: n.vy }));
 
+      const goldenAngle = Math.PI * (3 - Math.sqrt(5)); // ~137.5 degrees
       const initializedNodes = data.nodes.map((node, i) => {
         const existing = existingPosMap.get(node.id);
-        const angle = (i / (data.nodes.length || 1)) * 2 * Math.PI;
-        const radius = Math.min(width, height) * 0.35 * Math.random() + 50;
+        const spreadRadius = Math.sqrt(i + 1) * 55 + 40;
+        const angle = i * goldenAngle;
 
         return {
           ...node,
-          x: existing ? existing.x : width / 2 + Math.cos(angle) * radius,
-          y: existing ? existing.y : height / 2 + Math.sin(angle) * radius,
-          vx: existing ? existing.vx : (Math.random() - 0.5) * 2,
-          vy: existing ? existing.vy : (Math.random() - 0.5) * 2,
+          x: existing ? existing.x : width / 2 + Math.cos(angle) * spreadRadius,
+          y: existing ? existing.y : height / 2 + Math.sin(angle) * spreadRadius,
+          vx: existing ? existing.vx : (Math.random() - 0.5) * 1.5,
+          vy: existing ? existing.vy : (Math.random() - 0.5) * 1.5,
           radius: Math.max(7, Math.min(18, 7 + (node.linksCount || 0) * 1.8)),
         };
       });
@@ -98,6 +99,24 @@ const VaultGraph = () => {
 
   useEffect(() => {
     fetchGraph();
+
+    let ws = null;
+    try {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      ws = new WebSocket(`${protocol}//${window.location.host}/api/ws`);
+      ws.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          if (msg.type === 'vault_updated' || msg.type === 'file_modified' || msg.type === 'file_created') {
+            fetchGraph();
+          }
+        } catch (e) {}
+      };
+    } catch (e) {}
+
+    return () => {
+      if (ws) ws.close();
+    };
   }, [fetchGraph]);
 
   // Load note details when a node is selected
@@ -137,17 +156,18 @@ const VaultGraph = () => {
     const nodeMap = new Map();
     nodes.forEach(n => nodeMap.set(n.id, n));
 
-    // 1. Repulsion between all node pairs
+    // 1. Repulsion between all node pairs & Collision Separation
     for (let i = 0; i < nodes.length; i++) {
       const n1 = nodes[i];
       for (let j = i + 1; j < nodes.length; j++) {
         const n2 = nodes[j];
         const dx = n2.x - n1.x;
         const dy = n2.y - n1.y;
-        const distSq = dx * dx + dy * dy || 1;
+        const distSq = Math.max(25, dx * dx + dy * dy);
         const dist = Math.sqrt(distSq);
 
-        if (dist < 400) {
+        // Electrostatic repulsion (Coulomb force)
+        if (dist < 650) {
           const force = repulsion / distSq;
           const fx = (dx / dist) * force;
           const fy = (dy / dist) * force;
@@ -157,9 +177,27 @@ const VaultGraph = () => {
           n2.vx += fx;
           n2.vy += fy;
         }
+
+        // HARD COLLISION SEPARATION: strictly prevent dots from ever overlapping
+        const minDist = n1.radius + n2.radius + 22; // 22px minimum clearance
+        if (dist < minDist) {
+          const overlap = minDist - dist;
+          const resolveX = (dx / dist) * overlap * 0.5;
+          const resolveY = (dy / dist) * overlap * 0.5;
+
+          n1.x -= resolveX;
+          n1.y -= resolveY;
+          n2.x += resolveX;
+          n2.y += resolveY;
+
+          n1.vx -= resolveX * 0.3;
+          n1.vy -= resolveY * 0.3;
+          n2.vx += resolveX * 0.3;
+          n2.vy += resolveY * 0.3;
+        }
       }
 
-      // Gravitational pull toward center
+      // Gentle center gravity (keeps graph cohesive without collapsing)
       n1.vx += (cx - n1.x) * gravity;
       n1.vy += (cy - n1.y) * gravity;
     }
@@ -185,10 +223,19 @@ const VaultGraph = () => {
       target.vy -= fy;
     });
 
-    // 3. Update positions & track Kinetic Energy
+    // 3. Update positions & Velocity Damping with Kinetic Energy calculation
     let totalKineticEnergy = 0;
+    const maxSpeed = 12;
+
     nodes.forEach(n => {
       if (draggedNodeRef.current === n) return; // Don't move actively dragged node
+
+      // Cap max velocity to prevent physics explosion
+      const speed = Math.sqrt(n.vx * n.vx + n.vy * n.vy);
+      if (speed > maxSpeed) {
+        n.vx = (n.vx / speed) * maxSpeed;
+        n.vy = (n.vy / speed) * maxSpeed;
+      }
 
       n.vx *= damping;
       n.vy *= damping;
@@ -200,7 +247,7 @@ const VaultGraph = () => {
     });
 
     // Kinetic Sleep Threshold: pause physics loop when graph stabilizes
-    if (totalKineticEnergy < 0.018 && !draggedNodeRef.current && !isDraggingRef.current) {
+    if (totalKineticEnergy < 0.02 && !draggedNodeRef.current && !isDraggingRef.current) {
       isSleepingRef.current = true;
     }
   }, [params]);
@@ -238,6 +285,7 @@ const VaultGraph = () => {
     const hovered = hoveredNodeRef.current;
     const selected = selectedNode;
     const search = searchQuery.trim().toLowerCase();
+    const isLight = document.documentElement.getAttribute('data-theme') === 'light';
 
     // Determine connected nodes if hovered or selected
     const activeFocus = hovered || selected;
@@ -250,7 +298,7 @@ const VaultGraph = () => {
       });
     }
 
-    // 1. Draw Links (Edges) with Viewport Culling
+    // 1. Draw Links (Edges) with Viewport Culling & Light Mode Visibility
     links.forEach(l => {
       const source = nodeMap.get(l.source);
       const target = nodeMap.get(l.target);
@@ -273,17 +321,18 @@ const VaultGraph = () => {
       ctx.lineTo(target.x, target.y);
 
       if (isConnected) {
-        ctx.strokeStyle = '#60A5FA';
+        ctx.strokeStyle = isLight ? '#2563EB' : '#60A5FA';
         ctx.lineWidth = 2.5 / scale;
-        ctx.shadowColor = '#3B82F6';
+        ctx.shadowColor = isLight ? 'rgba(37, 99, 235, 0.35)' : '#3B82F6';
         ctx.shadowBlur = 10;
       } else if (activeFocus) {
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.04)';
+        ctx.strokeStyle = isLight ? 'rgba(100, 116, 139, 0.08)' : 'rgba(255, 255, 255, 0.04)';
         ctx.lineWidth = 1 / scale;
         ctx.shadowBlur = 0;
       } else {
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
-        ctx.lineWidth = 1.2 / scale;
+        // High-contrast, monochromatic visible links in light mode
+        ctx.strokeStyle = isLight ? 'rgba(71, 85, 105, 0.28)' : 'rgba(255, 255, 255, 0.16)';
+        ctx.lineWidth = (isLight ? 1.35 : 1.2) / scale;
         ctx.shadowBlur = 0;
       }
 
@@ -291,7 +340,7 @@ const VaultGraph = () => {
       ctx.shadowBlur = 0;
     });
 
-    // 2. Draw Nodes with Viewport Culling
+    // 2. Draw Nodes with Viewport Culling & Monochromatic Palette
     nodes.forEach(node => {
       // Category filter check
       const matchesCat = selectedCategory === 'ALL' || node.category === selectedCategory;
@@ -315,7 +364,7 @@ const VaultGraph = () => {
       ctx.arc(node.x, node.y, radius, 0, 2 * Math.PI);
 
       if (isDimmed) {
-        ctx.fillStyle = 'rgba(100, 116, 139, 0.2)';
+        ctx.fillStyle = isLight ? 'rgba(148, 163, 184, 0.2)' : 'rgba(100, 116, 139, 0.2)';
         ctx.fill();
         ctx.restore();
         return;
@@ -327,38 +376,124 @@ const VaultGraph = () => {
         ctx.shadowBlur = 18;
       }
 
-      // Node body
+      // Node body - always use original category color
       ctx.fillStyle = node.color || '#3B82F6';
       ctx.fill();
 
       // Node border
       ctx.lineWidth = (isSelected ? 3 : 1.5) / scale;
-      ctx.strokeStyle = isSelected ? '#FFFFFF' : 'rgba(255, 255, 255, 0.4)';
+      ctx.strokeStyle = isSelected ? '#FFFFFF' : (isLight ? 'rgba(0, 0, 0, 0.15)' : 'rgba(255, 255, 255, 0.4)');
       ctx.stroke();
       ctx.shadowBlur = 0;
 
-      // Labels (Level of Detail: skip distant labels on low zoom unless hovered/selected)
-      const shouldDrawLabel = (showLabels || isHovered || isSelected || isConnected || (search && matchesSearch)) && scale >= 0.45;
-      if (shouldDrawLabel) {
-        const fontSize = Math.max(10, Math.min(13, 11 / Math.sqrt(scale)));
-        ctx.font = `${isHovered || isSelected ? '600' : '400'} ${fontSize}px Inter, sans-serif`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'top';
+      ctx.restore();
+    });
 
-        const labelText = node.title.length > 24 ? node.title.substring(0, 22) + '…' : node.title;
-        const textY = node.y + radius + 4;
+    // 3. Draw Labels with Smart Occlusion Avoidance (Zero Overlapping Text)
+    const labelCandidates = [];
 
-        // Label background pill for readability
-        const textWidth = ctx.measureText(labelText).width;
-        ctx.fillStyle = 'rgba(10, 10, 10, 0.75)';
-        ctx.beginPath();
-        ctx.roundRect(node.x - textWidth / 2 - 4, textY - 2, textWidth + 8, fontSize + 4, 4);
-        ctx.fill();
+    nodes.forEach(node => {
+      const matchesCat = selectedCategory === 'ALL' || node.category === selectedCategory;
+      const matchesSearch = !search || node.title.toLowerCase().includes(search) || (node.tags && node.tags.some(t => t.toLowerCase().includes(search)));
 
-        ctx.fillStyle = isHovered || isSelected ? '#FFFFFF' : 'rgba(255, 255, 255, 0.85)';
-        ctx.fillText(labelText, node.x, textY);
+      const isHovered = hovered && hovered.id === node.id;
+      const isSelected = selected && selected.id === node.id;
+      const isConnected = activeFocus && connectedIds.has(node.id);
+      const isSearchMatch = search && matchesSearch;
+      const isMajorHub = (node.linksCount || 0) >= 3 || node.category === 'raíz';
+
+      // High-priority nodes: hovered, selected, directly connected, or search matches
+      const isHighPriority = isHovered || isSelected || isConnected || isSearchMatch;
+      // Secondary nodes shown if user toggled showLabels OR at zoom >= 1.05 with major hubs OR deep zoom >= 1.45
+      const isSecondary = (showLabels || (scale >= 1.05 && isMajorHub) || scale >= 1.45) && matchesCat;
+
+      if (isHighPriority || isSecondary) {
+        const inViewport = node.x >= visibleLeft && node.x <= visibleRight && node.y >= visibleTop && node.y <= visibleBottom;
+        if (inViewport) {
+          labelCandidates.push({
+            node,
+            isHovered,
+            isSelected,
+            isConnected,
+            isSearchMatch,
+            priority: isHovered ? 100 : isSelected ? 90 : isSearchMatch ? 80 : isConnected ? 70 : (node.linksCount || 0)
+          });
+        }
+      }
+    });
+
+    // Sort: highest priority first
+    labelCandidates.sort((a, b) => b.priority - a.priority);
+
+    // Track placed label bounding boxes to eliminate overlaps completely
+    const placedBoxes = [];
+
+    labelCandidates.forEach(({ node, isHovered, isSelected }) => {
+      const radius = isHovered || isSelected ? node.radius * 1.35 : node.radius;
+      const fontSize = Math.max(11, Math.min(13, 12 / Math.sqrt(scale)));
+      ctx.font = `${isHovered || isSelected ? '600' : '500'} ${fontSize}px Inter, sans-serif`;
+
+      const labelText = node.title.length > 26 ? node.title.substring(0, 24) + '…' : node.title;
+      const textWidth = ctx.measureText(labelText).width;
+      const boxWidth = textWidth + 12;
+      const boxHeight = fontSize + 6;
+      const boxX = node.x - boxWidth / 2;
+      const boxY = node.y + radius + 5;
+
+      const currentBox = {
+        left: boxX,
+        top: boxY,
+        right: boxX + boxWidth,
+        bottom: boxY + boxHeight
+      };
+
+      const isHighPriority = isHovered || isSelected || (hovered && connectedIds.has(node.id));
+
+      // Check collision with already placed boxes (buffer 4px)
+      if (!isHighPriority) {
+        const buffer = 4;
+        const collides = placedBoxes.some(box => (
+          currentBox.left - buffer < box.right &&
+          currentBox.right + buffer > box.left &&
+          currentBox.top - buffer < box.bottom &&
+          currentBox.bottom + buffer > box.top
+        ));
+
+        // Skip drawing this label if it would collide with another!
+        if (collides) return;
       }
 
+      placedBoxes.push(currentBox);
+
+      // Draw clean label pill
+      ctx.save();
+      if (isLight) {
+        ctx.fillStyle = isHovered || isSelected ? '#FFFFFF' : 'rgba(255, 255, 255, 0.94)';
+        ctx.beginPath();
+        ctx.roundRect(boxX, boxY, boxWidth, boxHeight, 4);
+        ctx.fill();
+        ctx.strokeStyle = isHovered || isSelected ? '#3B82F6' : 'rgba(15, 23, 42, 0.14)';
+        ctx.lineWidth = (isHovered || isSelected ? 1.5 : 1) / scale;
+        ctx.stroke();
+
+        ctx.fillStyle = isHovered || isSelected ? '#0F172A' : '#334155';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+        ctx.fillText(labelText, node.x, boxY + 3);
+      } else {
+        ctx.fillStyle = isHovered || isSelected ? '#1E293B' : 'rgba(15, 23, 42, 0.88)';
+        ctx.beginPath();
+        ctx.roundRect(boxX, boxY, boxWidth, boxHeight, 4);
+        ctx.fill();
+        ctx.strokeStyle = isHovered || isSelected ? '#60A5FA' : 'rgba(255, 255, 255, 0.16)';
+        ctx.lineWidth = (isHovered || isSelected ? 1.5 : 1) / scale;
+        ctx.stroke();
+
+        ctx.fillStyle = isHovered || isSelected ? '#FFFFFF' : '#E2E8F0';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+        ctx.fillText(labelText, node.x, boxY + 3);
+      }
       ctx.restore();
     });
 
@@ -633,33 +768,33 @@ const VaultGraph = () => {
             <label>Repulsión: {params.repulsion}</label>
             <input
               type="range"
-              min="500"
-              max="4000"
-              step="100"
+              min="1000"
+              max="15000"
+              step="250"
               value={params.repulsion}
-              onChange={(e) => setParams(p => ({ ...p, repulsion: Number(e.target.value) }))}
+              onChange={(e) => { setParams(p => ({ ...p, repulsion: Number(e.target.value) })); wakeUp(); }}
             />
           </div>
           <div className="panel-row">
             <label>Distancia de enlaces: {params.springLength}px</label>
             <input
               type="range"
-              min="40"
-              max="250"
+              min="60"
+              max="350"
               step="10"
               value={params.springLength}
-              onChange={(e) => setParams(p => ({ ...p, springLength: Number(e.target.value) }))}
+              onChange={(e) => { setParams(p => ({ ...p, springLength: Number(e.target.value) })); wakeUp(); }}
             />
           </div>
           <div className="panel-row">
             <label>Gravedad al centro: {params.gravity}</label>
             <input
               type="range"
-              min="0.005"
-              max="0.1"
-              step="0.005"
+              min="0.001"
+              max="0.02"
+              step="0.001"
               value={params.gravity}
-              onChange={(e) => setParams(p => ({ ...p, gravity: Number(e.target.value) }))}
+              onChange={(e) => { setParams(p => ({ ...p, gravity: Number(e.target.value) })); wakeUp(); }}
             />
           </div>
         </div>

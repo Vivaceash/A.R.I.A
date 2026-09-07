@@ -6,7 +6,6 @@ import {
   MessageSquare,
   ArrowLeftRight,
   Bell,
-  ClipboardList,
   Brain,
   Settings,
   Users,
@@ -72,15 +71,11 @@ const Sidebar = () => {
             </NavLink>
             <NavLink to="/comparaciones" className={({ isActive }) => isActive && !activeModule ? "nav-item active" : "nav-item"} onClick={() => setIsOpen(false)}>
               <ArrowLeftRight />
-              Comparaciones Globales
+              Historial de comparaciones
             </NavLink>
             <NavLink to="/alertas" className={({ isActive }) => isActive && !activeModule ? "nav-item active" : "nav-item"} onClick={() => setIsOpen(false)}>
               <Bell />
               Alertas Globales
-            </NavLink>
-            <NavLink to="/reportes" className={({ isActive }) => isActive && !activeModule ? "nav-item active" : "nav-item"} onClick={() => setIsOpen(false)}>
-              <ClipboardList />
-              Reportes Globales
             </NavLink>
           </>
         )}

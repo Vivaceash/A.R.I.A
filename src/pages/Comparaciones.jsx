@@ -1,89 +1,124 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
-import { FileText, FileSpreadsheet, Image as ImageIcon, File, FileCode, FolderArchive, Terminal, X, Download, FolderOpen, Search, ArrowUp, ArrowDown, Grid, Folder, Sparkles } from 'lucide-react';
+import {
+  FileText,
+  FileSpreadsheet,
+  Image as ImageIcon,
+  File,
+  FileCode,
+  FolderArchive,
+  Terminal,
+  Music,
+  X,
+  Download,
+  FolderOpen,
+  Search,
+  ArrowUp,
+  ArrowDown,
+  Grid,
+  Folder,
+  Sparkles
+} from 'lucide-react';
 import Header from '../components/Header';
 import AiAnalysisModal from '../components/AiAnalysisModal';
+import PdfIcon from '../components/PdfIcon';
 import './Comparaciones.css';
 
-const getFileIcon = (filename) => {
+const getFileCategoryColor = (filename) => {
   const parts = filename.split('.');
   const ext = parts.length > 1 ? parts.pop().toLowerCase() : '';
-  
   switch (ext) {
+    case 'pdf':
+      return '#EF4444'; // Bright Red for PDF
     case 'doc':
     case 'docx':
-    case 'txt':
-    case 'pdf':
-      return <FileText size={48} className="file-icon-doc" />;
+      return '#3B82F6'; // Blue
     case 'xls':
     case 'xlsx':
     case 'csv':
-      return <FileSpreadsheet size={48} className="file-icon-sheet" />;
+      return '#10B981'; // Green
     case 'jpg':
     case 'jpeg':
     case 'png':
     case 'svg':
     case 'gif':
-      return <ImageIcon size={48} className="file-icon-image" />;
+      return '#F59E0B'; // Amber
     case 'py':
     case 'js':
     case 'jsx':
     case 'html':
     case 'css':
     case 'json':
-      return <FileCode size={48} className="file-icon-code" />;
+      return '#8B5CF6'; // Purple
     case 'zip':
+    case 'rar':
     case 'tar':
     case 'gz':
-    case 'rar':
-      return <FolderArchive size={48} className="file-icon-archive" />;
+      return '#EC4899'; // Pink
+    case 'txt':
+    case 'md':
+      return '#64748B'; // Slate
+    case 'flac':
+    case 'mp3':
+    case 'wav':
+      return '#06B6D4'; // Cyan
     case 'sh':
     case 'bash':
-      return <Terminal size={48} className="file-icon-terminal" />;
+      return '#14B8A6'; // Teal
     default:
-      return <File size={48} className="file-icon-generic" />;
+      return '#6B7280';
   }
 };
 
-const getFileColor = (filename) => {
+const getFileColor = getFileCategoryColor;
+
+const getMinimalFileIcon = (filename, size = 32) => {
   const parts = filename.split('.');
   const ext = parts.length > 1 ? parts.pop().toLowerCase() : '';
-  
   switch (ext) {
+    case 'pdf':
+      return <PdfIcon size={size} color="#EF4444" />;
     case 'doc':
     case 'docx':
-    case 'txt':
-    case 'pdf':
-      return '#3B82F6';
+      return <FileText size={size} style={{ color: '#3B82F6' }} />;
     case 'xls':
     case 'xlsx':
     case 'csv':
-      return '#10B981';
+      return <FileSpreadsheet size={size} style={{ color: '#10B981' }} />;
     case 'jpg':
     case 'jpeg':
     case 'png':
     case 'svg':
     case 'gif':
-      return '#F59E0B';
+      return <ImageIcon size={size} style={{ color: '#F59E0B' }} />;
     case 'py':
     case 'js':
     case 'jsx':
     case 'html':
     case 'css':
     case 'json':
-      return '#8B5CF6';
+      return <FileCode size={size} style={{ color: '#8B5CF6' }} />;
     case 'zip':
     case 'tar':
     case 'gz':
     case 'rar':
-      return '#EC4899';
+      return <FolderArchive size={size} style={{ color: '#EC4899' }} />;
     case 'sh':
     case 'bash':
-      return '#14B8A6';
+      return <Terminal size={size} style={{ color: '#14B8A6' }} />;
+    case 'flac':
+    case 'mp3':
+    case 'wav':
+      return <Music size={size} style={{ color: '#06B6D4' }} />;
+    case 'txt':
+    case 'md':
+      return <FileText size={size} style={{ color: '#94A3B8' }} />;
     default:
-      return 'var(--text-muted)';
+      return <File size={size} style={{ color: '#9CA3AF' }} />;
   }
 };
+
+const getFileIcon = getMinimalFileIcon;
 
 const formatSize = (bytes) => {
   if (!bytes || bytes === 0) return '0 B';
@@ -241,7 +276,7 @@ function Comparaciones() {
 
   return (
     <>
-      <Header title={module ? `Comparaciones de ${module.charAt(0).toUpperCase() + module.slice(1)}` : "Comparaciones Globales"} showTimeframe={false} />
+      <Header title={module ? `Comparaciones de ${module.charAt(0).toUpperCase() + module.slice(1)}` : "Historial de comparaciones"} showTimeframe={false} />
       
       <div className="archivos-container">
         <div className="archivos-controls">
@@ -332,62 +367,82 @@ function Comparaciones() {
                 <span className="badge">{files.length}</span>
               </div>
               <div className="files-grid">
-                {files.map((file, idx) => (
-                  <div 
-                    key={idx} 
-                    className="file-card" 
-                    onClick={() => handleViewAnalysis(file)}
-                    style={{ '--file-color': getFileColor(file.name) }}
-                  >
-                    <div className="file-card-icon-wrapper">
-                      {getFileIcon(file.name)}
+                {files.map((file, idx) => {
+                  const categoryColor = getFileCategoryColor(file.name);
+                  return (
+                    <div 
+                      key={idx} 
+                      className="file-card" 
+                      onClick={() => handleViewAnalysis(file)}
+                      style={{ '--file-color': categoryColor }}
+                    >
+                      <div 
+                        className="file-card-icon-wrapper"
+                        style={{
+                          backgroundColor: `${categoryColor}20`,
+                          borderColor: `${categoryColor}40`,
+                          color: categoryColor
+                        }}
+                      >
+                        {getMinimalFileIcon(file.name, 32)}
+                      </div>
+                      <div className="file-card-info">
+                        <h4 className="file-name" title={file.name}>{file.name}</h4>
+                        <div className="file-meta">
+                          <span className="file-owner" title="Propietario">{file.owner}</span>
+                          <span className="file-size" title="Tamaño">{formatSize(file.size)}</span>
+                        </div>
+                        <div className="file-date" title="Última modificación">
+                          {new Date(file.timestamp).toLocaleString()}
+                        </div>
+                        <div className="comparison-badge" style={{ marginTop: '8px', fontSize: '11px', color: 'var(--accent-primary)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          <Sparkles size={12} /> Análisis de cambios disponible
+                        </div>
+                      </div>
                     </div>
-                    <div className="file-card-info">
-                      <h4 className="file-name" title={file.name}>{file.name}</h4>
-                      <div className="file-meta">
-                        <span className="file-owner" title="Propietario">{file.owner}</span>
-                        <span className="file-size" title="Tamaño">{formatSize(file.size)}</span>
-                      </div>
-                      <div className="file-date" title="Última modificación">
-                        {new Date(file.timestamp).toLocaleString()}
-                      </div>
-                      <div className="comparison-badge" style={{ marginTop: '8px', fontSize: '11px', color: 'var(--accent-primary)', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                        <Sparkles size={12} /> Análisis de cambios disponible
-                      </div>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           ))
         ) : (
           // Flat Grid View
           <div className="files-grid">
-            {processedFiles.map((file, idx) => (
-              <div 
-                key={idx} 
-                className="file-card" 
-                onClick={() => handleViewAnalysis(file)}
-                style={{ '--file-color': getFileColor(file.name) }}
-              >
-                <div className="file-card-icon-wrapper">
-                  {getFileIcon(file.name)}
+            {processedFiles.map((file, idx) => {
+              const categoryColor = getFileCategoryColor(file.name);
+              return (
+                <div 
+                  key={idx} 
+                  className="file-card" 
+                  onClick={() => handleViewAnalysis(file)}
+                  style={{ '--file-color': categoryColor }}
+                >
+                  <div 
+                    className="file-card-icon-wrapper"
+                    style={{
+                      backgroundColor: `${categoryColor}20`,
+                      borderColor: `${categoryColor}40`,
+                      color: categoryColor
+                    }}
+                  >
+                    {getMinimalFileIcon(file.name, 32)}
+                  </div>
+                  <div className="file-card-info">
+                    <h4 className="file-name" title={file.name}>{file.name}</h4>
+                    <div className="file-meta">
+                      <span className="file-owner" title="Propietario">{file.owner}</span>
+                      <span className="file-size" title="Tamaño">{formatSize(file.size)}</span>
+                    </div>
+                    <div className="file-date" title="Última modificación">
+                      {new Date(file.timestamp).toLocaleString()}
+                    </div>
+                    <div className="comparison-badge" style={{ marginTop: '8px', fontSize: '11px', color: 'var(--accent-primary)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <Sparkles size={12} /> Análisis de cambios disponible
+                    </div>
+                  </div>
                 </div>
-                <div className="file-card-info">
-                  <h4 className="file-name" title={file.name}>{file.name}</h4>
-                  <div className="file-meta">
-                    <span className="file-owner" title="Propietario">{file.owner}</span>
-                    <span className="file-size" title="Tamaño">{formatSize(file.size)}</span>
-                  </div>
-                  <div className="file-date" title="Última modificación">
-                    {new Date(file.timestamp).toLocaleString()}
-                  </div>
-                  <div className="comparison-badge" style={{ marginTop: '8px', fontSize: '11px', color: 'var(--accent-primary)', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    <Sparkles size={12} /> Análisis de cambios disponible
-                  </div>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

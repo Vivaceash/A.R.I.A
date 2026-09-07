@@ -33,6 +33,7 @@ import {
   FileCheck,
   BookOpen
 } from 'lucide-react';
+import PdfIcon from './PdfIcon';
 import './FileViewerPanel.css';
 
 const formatSize = (bytes) => {
@@ -86,7 +87,7 @@ const getFileIconComponent = (filename, size = 26) => {
   const ext = parts.length > 1 ? parts.pop().toLowerCase() : '';
   switch (ext) {
     case 'pdf':
-      return <FileText size={size} className="icon-pdf" style={{ color: '#EF4444' }} />;
+      return <PdfIcon size={size} color="#EF4444" />;
     case 'doc':
     case 'docx':
       return <FileText size={size} className="icon-doc" style={{ color: '#3B82F6' }} />;
@@ -391,7 +392,7 @@ export default function FileViewerPanel({
                     style={{ transform: `scale(${zoomLevel / 100})`, transformOrigin: 'top center' }}
                   >
                     <iframe
-                      src={`/api/download/${encodeURIComponent(file.name)}#toolbar=0&navpanes=0&scrollbar=1&view=FitH`}
+                      src={`/api/view/${encodeURIComponent(file.name)}#toolbar=0&navpanes=0&scrollbar=1&view=FitH`}
                       title={file.name}
                       className="fvp-pdf-iframe"
                     />
@@ -406,6 +407,11 @@ export default function FileViewerPanel({
                       <span className="fvp-word-title-tag">Word Document</span>
                       {docData?.words > 0 && (
                         <span className="fvp-word-count-tag">{docData.words} palabras</span>
+                      )}
+                      {docData?.images > 0 && (
+                        <span className="fvp-word-count-tag" style={{ background: 'rgba(16, 185, 129, 0.15)', color: '#34D399', borderColor: 'rgba(16, 185, 129, 0.25)' }}>
+                          {docData.images} imgs
+                        </span>
                       )}
                     </div>
                     <div className="fvp-word-toolbar-right">
@@ -448,13 +454,14 @@ export default function FileViewerPanel({
                       <div
                         className="fvp-word-sheet"
                         style={{
-                          transform: `scale(${zoomLevel / 100})`,
-                          transformOrigin: 'top center'
+                          zoom: zoomLevel !== 100 ? `${zoomLevel}%` : undefined
                         }}
                       >
                         <div className="fvp-word-sheet-header">
-                          <span className="fvp-doc-watermark">A.R.I.A Word Viewer</span>
-                          <span className="fvp-doc-page-num">Pág. 1</span>
+                          <span className="fvp-doc-watermark">Vista Previa Word</span>
+                          <span className="fvp-doc-page-num">
+                            {docData?.paragraphs ? `${docData.paragraphs} párrafos` : 'Completo'}
+                          </span>
                         </div>
                         {docData?.html ? (
                           <div
@@ -470,12 +477,24 @@ export default function FileViewerPanel({
                       </div>
                     )}
                   </div>
+
+                  {/* Banner inferior para abrir documento completo sin cortes */}
+                  <div className="fvp-word-preview-footer">
+                    <button
+                      className="fvp-word-open-full-btn"
+                      onClick={() => setShowFullModal(true)}
+                      title="Abrir el documento completo en el visor expandido"
+                    >
+                      <Maximize2 size={12} />
+                      <span>Abrir visor completo de lectura ({docData?.words || 0} palabras{docData?.images ? ` • ${docData.images} imgs` : ''})</span>
+                    </button>
+                  </div>
                 </div>
               ) : isImage ? (
                 /* Image Viewer */
                 <div className="fvp-image-viewer" onClick={() => setShowFullModal(true)}>
                   <img
-                    src={`/api/download/${encodeURIComponent(file.name)}`}
+                    src={`/api/view/${encodeURIComponent(file.name)}`}
                     alt={file.name}
                     className="fvp-image-preview"
                     style={{ transform: `scale(${zoomLevel / 100})` }}
@@ -714,7 +733,7 @@ export default function FileViewerPanel({
             <div className="fvp-modal-content">
               {isPdf ? (
                 <iframe
-                  src={`/api/download/${encodeURIComponent(file.name)}#toolbar=1&navpanes=1`}
+                  src={`/api/view/${encodeURIComponent(file.name)}#toolbar=1&navpanes=1`}
                   title={file.name}
                   className="fvp-modal-pdf-iframe"
                 />
@@ -722,8 +741,23 @@ export default function FileViewerPanel({
                 <div className="fvp-modal-word-container">
                   <div className="fvp-modal-word-page">
                     <div className="fvp-word-doc-ribbon">
-                      <BookOpen size={16} color="#3B82F6" />
-                      <span>Visor de Documento Word — {file.name}</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <BookOpen size={16} color="#3B82F6" />
+                        <span>Visor de Documento Word — {file.name}</span>
+                      </div>
+                      <div style={{ display: 'flex', gap: '8px', marginLeft: 'auto' }}>
+                        {docData?.words > 0 && (
+                          <span className="fvp-modal-word-badge">{docData.words} palabras</span>
+                        )}
+                        {docData?.paragraphs > 0 && (
+                          <span className="fvp-modal-word-badge">{docData.paragraphs} párrafos</span>
+                        )}
+                        {docData?.images > 0 && (
+                          <span className="fvp-modal-word-badge" style={{ background: 'rgba(16, 185, 129, 0.15)', color: '#34D399', borderColor: 'rgba(16, 185, 129, 0.25)' }}>
+                            {docData.images} imágenes
+                          </span>
+                        )}
+                      </div>
                     </div>
                     {docData?.html ? (
                       <div
@@ -739,7 +773,7 @@ export default function FileViewerPanel({
                 </div>
               ) : isImage ? (
                 <div className="fvp-modal-image-wrapper">
-                  <img src={`/api/download/${encodeURIComponent(file.name)}`} alt={file.name} className="fvp-modal-image" />
+                  <img src={`/api/view/${encodeURIComponent(file.name)}`} alt={file.name} className="fvp-modal-image" />
                 </div>
               ) : isTextLike ? (
                 <div className="fvp-modal-text-wrapper">

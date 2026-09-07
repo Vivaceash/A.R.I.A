@@ -13,6 +13,7 @@ import shutil
 import re
 import hashlib
 import zipfile
+import base64
 import xml.etree.ElementTree as ET
 try:
     import pwd
@@ -786,7 +787,7 @@ def get_comparisons(module: str = None):
     return comparisons
 
 @app.get("/api/download/{filename}")
-def download_file(filename: str):
+def download_file(filename: str, inline: bool = False):
     # Security check to prevent path traversal
     safe_path = secure_resolve_path(filename, DIRECTORY, must_exist=False)
     
@@ -804,7 +805,12 @@ def download_file(filename: str):
     if not filepath or not filepath.exists():
         raise HTTPException(status_code=404, detail="File not found")
         
-    return FileResponse(path=str(filepath), filename=filename)
+    disposition = "inline" if inline else "attachment"
+    return FileResponse(path=str(filepath), filename=filename, content_disposition_type=disposition)
+
+@app.get("/api/view/{filename}")
+def view_file(filename: str):
+    return download_file(filename=filename, inline=True)
 
 @app.post("/api/files/upload")
 async def upload_general_file(file: UploadFile = File(...), folder: str = Form(None), module: str = Form(None)):
@@ -909,75 +915,202 @@ def get_document_content(filename: str):
         
     _, ext = os.path.splitext(filename.lower())
     
-    if ext == '.docx':
+    if ext in ['.docx', '.doc']:
+        # Caso 1: Archivo que no es ZIP válido (p. ej. texto plano restaurado con extensión .docx)
+        if not zipfile.is_zipfile(str(filepath)):
+            try:
+                with open(str(filepath), 'r', encoding='utf-8', errors='replace') as f:
+                    raw_text = f.read()
+            except Exception:
+                try:
+                    with open(str(filepath), 'r', encoding='latin-1', errors='replace') as f:
+                        raw_text = f.read()
+                except Exception as e:
+                    return {
+                        "status": "error",
+                        "type": "docx",
+                        "message": str(e),
+                        "html": f"<p class='doc-error-msg'>No se pudo leer el archivo Word: {str(e)}</p>",
+                        "paragraphs": 0,
+                        "words": 0,
+                        "images": 0,
+                        "filename": filename
+                    }
+                    
+            clean_text = raw_text.replace('\x00', '').strip()
+            raw_paragraphs = [p.strip() for p in re.split(r'\n{2,}|\r\n{2,}', clean_text) if p.strip()]
+            if not raw_paragraphs:
+                raw_paragraphs = [p.strip() for p in clean_text.splitlines() if p.strip()]
+            if not raw_paragraphs and clean_text:
+                raw_paragraphs = [clean_text]
+                
+            html_parts = []
+            words_count = 0
+            for i, p in enumerate(raw_paragraphs):
+                words_count += len(p.split())
+                if i == 0 and len(p) < 90:
+                    html_parts.append(f"<h1 class='doc-heading doc-h1'>{p}</h1>")
+                elif len(p) < 60 and not p.endswith('.'):
+                    html_parts.append(f"<h2 class='doc-heading doc-h2'>{p}</h2>")
+                else:
+                    html_parts.append(f"<p class='doc-paragraph'>{p}</p>")
+                    
+            return {
+                "status": "success",
+                "type": "docx",
+                "html": "".join(html_parts) if html_parts else "<p class='doc-empty-msg'>Documento sin contenido textual.</p>",
+                "paragraphs": len(raw_paragraphs),
+                "words": words_count,
+                "images": 0,
+                "filename": filename
+            }
+            
+        # Caso 2: Archivo OpenXML DOCX real
         try:
             with zipfile.ZipFile(str(filepath)) as docx:
+                # 1. Mapear identificadores de relaciones a archivos multimedia (imágenes)
+                rels = {}
+                if 'word/_rels/document.xml.rels' in docx.namelist():
+                    try:
+                        rels_xml = docx.read('word/_rels/document.xml.rels')
+                        rels_root = ET.fromstring(rels_xml)
+                        for r in rels_root:
+                            r_id = r.attrib.get('Id')
+                            target = r.attrib.get('Target', '')
+                            rels[r_id] = target
+                    except Exception:
+                        pass
+                        
+                # 2. Extraer imágenes integradas como data URIs en Base64
+                images_data = {}
+                for r_id, target in rels.items():
+                    if 'media/' in target:
+                        media_path = 'word/' + target if not target.startswith('word/') else target
+                        media_path = media_path.replace('word/word/', 'word/')
+                        if media_path in docx.namelist():
+                            try:
+                                img_bytes = docx.read(media_path)
+                                img_ext = media_path.split('.')[-1].lower()
+                                mime = 'image/png' if img_ext == 'png' else 'image/jpeg' if img_ext in ('jpg', 'jpeg') else f'image/{img_ext}'
+                                b64 = base64.b64encode(img_bytes).decode('utf-8')
+                                images_data[r_id] = f'data:{mime};base64,{b64}'
+                            except Exception:
+                                pass
+                                
+                # 3. Parsear el XML principal en orden secuencial del cuerpo
                 xml_content = docx.read('word/document.xml')
                 root = ET.fromstring(xml_content)
-                
+                body = root.find('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}body')
+                if body is None:
+                    body = root
+                    
                 html_parts = []
                 paragraphs_count = 0
                 words_count = 0
                 
-                for child in root.iter():
-                    if child.tag.endswith('p'):
-                        p_text = []
-                        is_heading = False
-                        heading_level = 1
-                        
-                        pPr = child.find('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}pPr')
-                        if pPr is not None:
-                            pStyle = pPr.find('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}pStyle')
-                            if pStyle is not None:
-                                val = pStyle.attrib.get('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}val', '')
-                                if 'Heading' in val or 'Titulo' in val or 'Title' in val:
-                                    is_heading = True
-                                    heading_level = 1 if '1' in val else 2 if '2' in val else 3
-                        
-                        for r in child.findall('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}r'):
-                            t = r.find('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}t')
-                            if t is not None and t.text:
-                                text = t.text
-                                rPr = r.find('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}rPr')
+                def parse_paragraph_elem(p_elem):
+                    nonlocal paragraphs_count, words_count
+                    p_text = []
+                    is_heading = False
+                    heading_level = 1
+                    
+                    pPr = p_elem.find('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}pPr')
+                    if pPr is not None:
+                        pStyle = pPr.find('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}pStyle')
+                        if pStyle is not None:
+                            val = pStyle.attrib.get('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}val', '')
+                            if any(k in val.lower() for k in ('heading', 'titulo', 'title')):
+                                is_heading = True
+                                heading_level = 1 if '1' in val else 2 if '2' in val else 3
+                                
+                    for item in p_elem.iter():
+                        if item.tag.endswith('}r'):
+                            t_elem = item.find('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}t')
+                            if t_elem is not None and t_elem.text:
+                                text = t_elem.text
+                                rPr = item.find('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}rPr')
                                 if rPr is not None:
                                     if rPr.find('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}b') is not None:
                                         text = f"<strong>{text}</strong>"
                                     if rPr.find('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}i') is not None:
                                         text = f"<em>{text}</em>"
+                                    if rPr.find('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}u') is not None:
+                                        text = f"<u>{text}</u>"
                                 p_text.append(text)
+                        elif item.tag.endswith('}br'):
+                            p_text.append("<br/>")
+                        elif item.tag.endswith('}blip'):
+                            embed_id = item.attrib.get('{http://schemas.openxmlformats.org/officeDocument/2006/relationships}embed')
+                            if embed_id in images_data:
+                                p_text.append(f'<div class="doc-image-container"><img src="{images_data[embed_id]}" class="doc-embedded-img" alt="Ilustración Word" /></div>')
                                 
-                        full_p = "".join(p_text).strip()
-                        if full_p:
-                            paragraphs_count += 1
-                            words_count += len(full_p.split())
-                            if is_heading:
-                                html_parts.append(f"<h{heading_level} class='doc-heading doc-h{heading_level}'>{full_p}</h{heading_level}>")
-                            else:
-                                html_parts.append(f"<p class='doc-paragraph'>{full_p}</p>")
-                                
-                    elif child.tag.endswith('tbl'):
-                        table_html = ["<table class='doc-table'>"]
-                        for tr in child.findall('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}tr'):
-                            table_html.append("<tr>")
-                            for tc in tr.findall('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}tc'):
-                                cell_text = []
-                                for t in tc.iter():
-                                    if t.tag.endswith('t') and t.text:
-                                        cell_text.append(t.text)
-                                table_html.append(f"<td>{' '.join(cell_text)}</td>")
-                            table_html.append("</tr>")
-                        table_html.append("</table>")
-                        html_parts.append("".join(table_html))
-                        
+                    full_p = "".join(p_text).strip()
+                    if full_p:
+                        paragraphs_count += 1
+                        words_count += len(re.sub(r'<[^<]+?>', '', full_p).split())
+                        if is_heading:
+                            return f"<h{heading_level} class='doc-heading doc-h{heading_level}'>{full_p}</h{heading_level}>"
+                        return f"<p class='doc-paragraph'>{full_p}</p>"
+                    return ""
+                    
+                for elem in body:
+                    tag = elem.tag.split('}')[-1]
+                    if tag == 'p':
+                        p_html = parse_paragraph_elem(elem)
+                        if p_html:
+                            html_parts.append(p_html)
+                    elif tag == 'tbl':
+                        table_rows = ["<table class='doc-table'>"]
+                        for tr in elem.iter('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}tr'):
+                            row_cells = ["<tr>"]
+                            for tc in tr.iter('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}tc'):
+                                cell_content = []
+                                for p in tc.iter('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}p'):
+                                    p_str = parse_paragraph_elem(p)
+                                    if p_str:
+                                        cell_content.append(p_str)
+                                row_cells.append(f"<td>{' '.join(cell_content)}</td>")
+                            row_cells.append("</tr>")
+                            table_rows.append("".join(row_cells))
+                        table_rows.append("</table>")
+                        html_parts.append("".join(table_rows))
+                    elif tag == 'sdt':
+                        for sub_elem in elem.iter():
+                            if sub_elem.tag.endswith('}p'):
+                                p_html = parse_paragraph_elem(sub_elem)
+                                if p_html:
+                                    html_parts.append(p_html)
+                                    
                 return {
                     "status": "success",
                     "type": "docx",
                     "html": "".join(html_parts) if html_parts else "<p class='doc-empty-msg'>Documento sin texto.</p>",
                     "paragraphs": paragraphs_count,
                     "words": words_count,
+                    "images": len(images_data),
                     "filename": filename
                 }
         except Exception as e:
+            # Reintento de emergencia: extraer todos los textos XML
+            try:
+                with zipfile.ZipFile(str(filepath)) as docx:
+                    xml_content = docx.read('word/document.xml')
+                    root = ET.fromstring(xml_content)
+                    texts = [elem.text for elem in root.iter() if elem.tag.endswith('}t') and elem.text]
+                    joined = " ".join(texts).strip()
+                    if joined:
+                        return {
+                            "status": "success",
+                            "type": "docx",
+                            "html": f"<p class='doc-paragraph'>{joined}</p>",
+                            "paragraphs": 1,
+                            "words": len(joined.split()),
+                            "images": 0,
+                            "filename": filename
+                        }
+            except Exception:
+                pass
+                
             return {
                 "status": "error",
                 "type": "docx",
@@ -985,6 +1118,7 @@ def get_document_content(filename: str):
                 "html": f"<p class='doc-error-msg'>No se pudo renderizar la estructura Word: {str(e)}</p>",
                 "paragraphs": 0,
                 "words": 0,
+                "images": 0,
                 "filename": filename
             }
             
@@ -1505,8 +1639,10 @@ def build_realtime_system_status(current_path="/chat"):
         # 3. Get directory files
         files = get_files_data()
         file_summary = []
-        for f in files:
+        for f in files[:20]:
             file_summary.append(f"  * {f['name']} - {f['size']} bytes (Modificado por {f['owner']} en {f['mtime']})")
+        if len(files) > 20:
+            file_summary.append(f"  * ... y {len(files) - 20} archivos más en el directorio.")
         
         # Format strings
         active_alerts_str = "\n".join(active_list) if active_list else "  * Sin alertas activas."
@@ -1569,15 +1705,322 @@ async def chat_endpoint(payload: ChatPayload):
         print(f"Error in RAG retrieval: {e}")
         rag_context = f"Error al recuperar contexto de documentos locales: {str(e)}"
 
-    # 2.2 Detect if the user wants A.R.I.A to store a new memory / learning from chat
-    query_lower_mem = latest_query.lower()
+    # 2.2 Detect if the user wants A.R.I.A to generate/create/update a note/file/memory in Obsidian
+    query_to_analyze = latest_query
+    
+    # Check if latest query is a correction vs. confirmation
+    is_correction = bool(re.search(
+        r'\b(?:pero|sin embargo|no tiene|no la conectes|no lo conectes|no est[aá]|te equivocaste|te falt[oó]|corrige|qu[ií]tala|descon[eé]ctala|desv[ií]ncula|por qu[eé]|si la indexaste)\b',
+        latest_query,
+        re.IGNORECASE
+    ))
+    
+    is_confirmation = False
+    if not is_correction:
+        for c in ["confirmo", "confirmar", "confirmado", "adelante", "procede", "proceder", "hazlo", "dale", "afirmativo", "de acuerdo", "procede con la creación"]:
+            if latest_query.lower().strip().startswith(c):
+                is_confirmation = True
+                break
+        if not is_confirmation and re.match(r'^(?:s[íi])(?:\s*,\s*|\s+|$)', latest_query.lower().strip()):
+            is_confirmation = True
+
+    if is_confirmation and len(payload.messages) > 1:
+        for prev_msg in reversed(payload.messages[:-1]):
+            if prev_msg.role == "user" and len(prev_msg.content.strip().split()) > 1:
+                query_to_analyze = f"{prev_msg.content} {latest_query}"
+                break
+
+    query_lower_mem = query_to_analyze.lower().strip()
+    memory_action_executed = None
+
+    # Check for explicit note/file/memory creation or editing
+    note_create_patterns = [
+        # 1. Matches "crea/genera/haz/guarda [un/una/el/la] [nuevo/nueva] [nota/archivo/memoria/documento/nodo] [llamada/llamado/de nombre/con el nombre] NAME"
+        r"(?:crea|crear|genera|generar|haz|hacer|agrega|agregar|escribe|escribir|registra|registrar|guarda|guardar|nueva|nuevo|creame|créame|hazme)\s+(?:(?:un|una|el|la)\s+)?(?:(?:nuevo|nueva)\s+)?(?:nota|archivo|memoria|documento|fichero|nodo|registro|apunte)?\s*(?:llamada|llamado|con\s+el\s+nombre|de\s+nombre|titulada|titulado|nombrada|nombrado)\s*[\"\x27`]?([A-Za-z0-9_\-\.]+?)[\"\x27`]?(?:\.md|\.txt)?\b",
+        # 2. Matches "crea/genera/haz [un/una/el/la] [nuevo/nueva] (nota|archivo|memoria/documento/fichero/nodo) NAME"
+        r"(?:crea|crear|genera|generar|haz|hacer|agrega|agregar|escribe|escribir|registra|registrar|guarda|guardar|creame|créame|hazme)\s+(?:(?:un|una|el|la)\s+)?(?:(?:nuevo|nueva)\s+)?(?:nota|archivo|memoria|documento|fichero|nodo|registro|apunte)\s+[\"\x27`]?([A-Za-z0-9_\-\.]+?)[\"\x27`]?(?:\.md|\.txt)?\b",
+        # 3. Matches "(crear|nueva|nuevo) (nota|archivo|memoria|documento): NAME"
+        r"(?:crear|generar|agregar|nueva|nuevo)\s+(?:nota|archivo|memoria|documento|fichero|nodo)\s*:\s*[\"\x27`]?([A-Za-z0-9_\-\.]+?)[\"\x27`]?(?:\.md|\.txt)?\b",
+        # 4. Matches "actualiza/modifica/corrige/edita (la nota|el archivo|la memoria) NAME"
+        r"(?:actualiza|actualizar|modifica|modificar|edita|editar|corrige|corregir|desconecta|desconectar|desvincula|desvincular)\s+(?:(?:la|el)\s+)?(?:nota|archivo|memoria|documento)?\s*[\"\x27`]?([A-Za-z0-9_\-\.]+?)[\"\x27`]?(?:\.md|\.txt)?\b",
+    ]
+
+    note_name = None
+    for pattern in note_create_patterns:
+        match = re.search(pattern, query_to_analyze, re.IGNORECASE)
+        if match:
+            candidate = match.group(1).strip()
+            if candidate.lower() not in ["en", "la", "el", "del", "de", "un", "una", "al", "que", "llamada", "llamado", "para", "por", "nuevo", "nueva"]:
+                note_name = candidate
+                break
+
+    # If note_name not found in current query, but this is a correction or follow-up, look in recent messages
+    if not note_name and len(payload.messages) > 1:
+        for prev_msg in reversed(payload.messages[-5:]):
+            matches = re.findall(r'\b(P\d{2,6}|[A-Za-z0-9_\-]{3,20})\b', prev_msg.content)
+            for cand in matches:
+                cand_clean = cand.strip('.').strip()
+                cand_file = Path(VAULT_PATH) / f"{cand_clean}.md"
+                if cand_file.exists() or any((p / f"{cand_clean}.md").exists() for p in Path(VAULT_PATH).glob("**/")):
+                    note_name = cand_clean
+                    break
+            if note_name:
+                break
+
+    if note_name:
+        try:
+            import frontmatter
+            safe_name = re.sub(r'[<>:"/\\|?*]', '', note_name).strip()
+            if safe_name.endswith('.md'):
+                safe_name = safe_name[:-3].strip()
+            if safe_name:
+                # Locate if file already exists in vault
+                existing_file = None
+                for p in Path(VAULT_PATH).rglob(f"{safe_name}.md"):
+                    if not any(ign in p.parts for ign in [".trash", ".obsidian", ".git"]):
+                        existing_file = p
+                        break
+
+                # Determine target folder
+                if existing_file:
+                    target_dir = existing_file.parent
+                    folder_name = "raíz" if target_dir == Path(VAULT_PATH) else target_dir.name
+                    note_file = existing_file
+                    is_update = True
+                else:
+                    if any(w in query_lower_mem for w in ["operativa", "operativas"]):
+                        target_dir = Path(VAULT_PATH) / "Notas Operativas"
+                        folder_name = "Notas Operativas"
+                    elif any(w in query_lower_mem for w in ["regla", "reglas"]):
+                        target_dir = Path(VAULT_PATH) / "Reglas de Negocio"
+                        folder_name = "Reglas de Negocio"
+                    elif any(w in query_lower_mem for w in ["auditoria", "auditoría"]):
+                        target_dir = Path(VAULT_PATH) / "Auditorias"
+                        folder_name = "Auditorias"
+                    else:
+                        target_dir = Path(VAULT_PATH)
+                        folder_name = "raíz"
+
+                    target_dir.mkdir(parents=True, exist_ok=True)
+                    note_file = target_dir / f"{safe_name}.md"
+                    is_update = False
+
+                # 1. Connection check with strict negation handling
+                combined_query_text = f"{query_to_analyze} {latest_query}"
+                negation_patterns = [
+                    r'\bno\s+(?:la\s+|lo\s+)?(?:conectes?|conectar|indexes?|indexar|vincules?|vincular|enlaces?|enlazar|agregues?|agregar|metas?|meter|unas?|unir)\b',
+                    r'\bsin\s+(?:conectar|indexar|vincular|enlazar|conexi[oó]n|conexiones|enlaces?)\b',
+                    r'\b(?:aislad[oa]|desconectad[oa]|solitari[oa]|independiente|sin\s+v[ií]nculos?)\b',
+                    r'\bdesconecta(?:r|la|lo)?\b',
+                    r'\bdesvincula(?:r|la|lo)?\b',
+                    r'\bdesindexa(?:r|la|lo)?\b',
+                    r'\b(?:quita|quitar|elimina|eliminar)\s+(?:el\s+enlace|la\s+conexi[oó]n|del\s+index|de\s+index)\b',
+                    r'\b(?:si\s+la\s+indexaste|la\s+conectaste)\b'
+                ]
+                is_connection_negated = any(re.search(p, combined_query_text, re.IGNORECASE) for p in negation_patterns)
+
+                positive_connect_patterns = [
+                    r'\b(?:conect(?:a|ar|ala|alo|ada|ado)|enlaz(?:a|ar|ala|alo|ada|ado)|vincul(?:a|ar|ala|alo|ada|ado))\s+(?:a|al|con|en)\s+(?:el\s+)?(?:index|índice|indice|nodo\s+central|cadena\s+central|ra[ií]z|centro)\b',
+                    r'\bindex(?:a|ar|ala|alo|ada|ado)\s+(?:a|al|en)\s+(?:la\s+)?(?:cadena\s+central|cadena\s+principal|index|índice|indice|ra[ií]z)\b',
+                    r'\b(?:en|a)\s+(?:la\s+)?(?:cadena\s+central|cadena\s+principal|nodo\s+central)\b',
+                    r'\b(?:con[eé]ctala|con[eé]ctalo|enl[aá]zala|enl[aá]zalo|indexala|ind[eé]xala)\s+(?:al?\s+)?(?:index|ra[ií]z|cadena)\b'
+                ]
+                has_positive_connect = any(re.search(p, query_lower_mem, re.IGNORECASE) for p in positive_connect_patterns)
+
+                if is_connection_negated:
+                    connect_to_index = False
+                elif has_positive_connect:
+                    connect_to_index = True
+                elif is_update and existing_file:
+                    try:
+                        ex_post = frontmatter.load(str(existing_file))
+                        connect_to_index = any("index" in str(r).lower() for r in ex_post.metadata.get("related_notes", []))
+                    except Exception:
+                        connect_to_index = False
+                else:
+                    connect_to_index = False
+
+                # 2. Content extraction & sequence generators
+                custom_content = ""
+                content_patterns = [
+                    r'(?:la\s+cual|el\s+cual|que)\s+(?:tendr[aá]|tiene|tenga|contendr[aá]|contiene)\s+(?:de\s+)?(?:informaci[oó]n|contenido|datos?|texto)\s*:?\s*["\'`]?(.+?)$',
+                    r'(?:con\s+(?:la\s+)?(?:informaci[oó]n|contenido|los\s+datos|el\s+texto)\s+(?:de|que|:))\s*:?\s*["\'`]?(.+?)$',
+                    r'(?:dentro\s+(?:de\s+la\s+nota\s+)?pon(?:le)?|escribe(?:le)?|con\s+el\s+contenido|que\s+contenga|que\s+diga|con\s+el\s+texto|agr[eé]gale|guarda\s+en\s+ella)\s*:?\s*["\'`]?(.+?)$',
+                    r'(?:informaci[oó]n|contenido|datos?)\s*:\s*["\'`]?(.+?)$',
+                ]
+                raw_extracted = ""
+                for cp in content_patterns:
+                    cm = re.search(cp, query_to_analyze, re.IGNORECASE)
+                    if cm:
+                        raw_extracted = cm.group(1).strip()
+                        break
+
+                cleaned_content = ""
+                if raw_extracted:
+                    cleaned_content = re.split(
+                        r'[,;]\s*(?:no\s+(?:la|lo)?\s*(?:conect|index|vincul|enlac)|sin\s+(?:conect|index)|con[eé]cta|enl[aá]za|indexa|en\s+la\s+carpeta|en\s+ra[ií]z|en\s+el\s+index)',
+                        raw_extracted,
+                        flags=re.IGNORECASE
+                    )[0].strip(" .\"'`")
+
+                all_context_text = f"{query_to_analyze} {latest_query} {cleaned_content}".lower()
+                if len(payload.messages) > 1:
+                    recent_context = " ".join([m.content for m in payload.messages[-4:]]).lower()
+                    all_context_text += f" {recent_context}"
+
+                # Mathematical / Knowledge Sequence Generators
+                if "fibonacci" in all_context_text:
+                    fib_n = 10
+                    n_match = re.search(r'(?:primeros?|primeras?)\s+(\d+)|(\d+)\s*(?:d[ií]gitos?|n[uú]meros?|elementos?|t[eé]rminos?)', all_context_text)
+                    if n_match:
+                        try:
+                            fib_n = max(1, min(50, int(n_match.group(1) or n_match.group(2))))
+                        except ValueError:
+                            fib_n = 10
+                    fib = [0, 1]
+                    while len(fib) < fib_n:
+                        fib.append(fib[-1] + fib[-2])
+                    fib_seq = fib[:fib_n]
+                    breakdown_str = "\n".join([f"- F({i}) = {num}" for i, num in enumerate(fib_seq)])
+                    fib_seq_str = ", ".join(str(x) for x in fib_seq)
+                    fib_seq_1 = [1, 1]
+                    while len(fib_seq_1) < fib_n:
+                        fib_seq_1.append(fib_seq_1[-1] + fib_seq_1[-2])
+                    fib_1_str = ", ".join(str(x) for x in fib_seq_1[:fib_n])
+
+                    custom_content = f"""
+
+## Contenido: Secuencia de Fibonacci
+**Primeros {fib_n} números de la Sucesión de Fibonacci:**
+`{fib_seq_str}`
+
+### Desglose de términos:
+{breakdown_str}
+
+*(Nota: En convención con inicio en 1: `{fib_1_str}`)*"""
+                elif "pi" in all_context_text and any(w in all_context_text for w in ["digito", "dígito", "decimal", "primeros", "valor"]):
+                    custom_content = """
+
+## Contenido: Número Pi (π)
+**Primeros 10 dígitos / decimales de Pi:**
+`3.1415926535`"""
+                elif cleaned_content:
+                    custom_content = f"""
+
+## Contenido Registrado
+{cleaned_content}"""
+                elif any(w in all_context_text for w in ["vacia", "vacía", "vacio", "vacío"]):
+                    custom_content = "\n\n*Estado: Inicializada / Vacía para indexación futura.*"
+
+                # 3. Setup frontmatter and file data
+                date_iso = datetime.now().isoformat()
+                if is_update:
+                    try:
+                        post = frontmatter.load(str(note_file))
+                        frontmatter_data = dict(post.metadata)
+                    except Exception:
+                        frontmatter_data = {
+                            "id": f"MEM-{datetime.now().strftime('%Y-%m-%d')}-{safe_name[:8].upper()}",
+                            "type": "concept",
+                            "tags": ["memoria", folder_name.lower().replace(" ", "-"), safe_name.lower()],
+                            "created_at": date_iso,
+                        }
+                else:
+                    frontmatter_data = {
+                        "id": f"MEM-{datetime.now().strftime('%Y-%m-%d')}-{safe_name[:8].upper()}",
+                        "type": "concept",
+                        "tags": ["memoria", folder_name.lower().replace(" ", "-"), safe_name.lower()],
+                        "created_at": date_iso,
+                    }
+
+                if "fibonacci" in all_context_text and "fibonacci" not in frontmatter_data.get("tags", []):
+                    frontmatter_data.setdefault("tags", []).append("fibonacci")
+                if "pi" in all_context_text and "pi" not in frontmatter_data.get("tags", []):
+                    frontmatter_data.setdefault("tags", []).append("pi")
+
+                # Configure related_notes and Index.md
+                index_path = Path(VAULT_PATH) / "Index.md"
+                if connect_to_index:
+                    frontmatter_data["related_notes"] = ["[[Index]]"]
+                    conn_desc = " y conectada a la cadena central y al [[Index]]"
+                    if index_path.exists():
+                        try:
+                            with open(index_path, 'r', encoding='utf-8') as f:
+                                idx_txt = f.read()
+                            link_str = f"[[{safe_name}]]"
+                            if link_str not in idx_txt:
+                                if "### [[PP32]]" in idx_txt:
+                                    idx_txt = idx_txt.replace("### [[PP32]]", f"### [[{safe_name}]]\n- [[{safe_name}]] — Nota de memoria conectada al Index central\n\n### [[PP32]]")
+                                else:
+                                    idx_txt += f"\n- [[{safe_name}]] — Nota de memoria conectada a la raíz\n"
+                                with open(index_path, 'w', encoding='utf-8') as f:
+                                    f.write(idx_txt)
+                        except Exception as idx_err:
+                            print(f"Error updating Index.md: {idx_err}")
+                else:
+                    frontmatter_data["related_notes"] = [r for r in frontmatter_data.get("related_notes", []) if "index" not in str(r).lower()]
+                    conn_desc = " (independiente / no vinculada a Index)"
+                    if index_path.exists():
+                        try:
+                            with open(index_path, 'r', encoding='utf-8') as f:
+                                idx_txt = f.read()
+                            if f"[[{safe_name}]]" in idx_txt:
+                                idx_txt = re.sub(rf'###\s*\[\[{re.escape(safe_name)}\]\]\n-.*?\n\n?', '', idx_txt)
+                                idx_txt = re.sub(rf'-?\s*\[\[{re.escape(safe_name)}\]\].*?\n', '', idx_txt)
+                                with open(index_path, 'w', encoding='utf-8') as f:
+                                    f.write(idx_txt)
+                        except Exception as idx_err:
+                            print(f"Error removing {safe_name} from Index.md: {idx_err}")
+
+                # Build body and persist
+                content_body = f"# {safe_name}\n\nNota de memoria generada a petición del operador{conn_desc}.{custom_content}\n"
+                post = frontmatter.Post(content_body, **frontmatter_data)
+                with open(note_file, 'w', encoding='utf-8') as f:
+                    f.write(frontmatter.dumps(post))
+
+                # Re-index in ChromaDB
+                from rag_engine_v2 import get_index
+                idx = get_index()
+                if idx:
+                    idx.index_single_file(str(note_file))
+                    if index_path.exists():
+                        idx.index_single_file(str(index_path))
+
+                # Broadcast WebSocket update to UI
+                if manager:
+                    asyncio.create_task(manager.broadcast({
+                        "type": "vault_updated",
+                        "event": "updated" if is_update else "created",
+                        "file": safe_name,
+                        "path": str(note_file.relative_to(VAULT_PATH))
+                    }))
+
+                action_summary = (
+                    f"Nota '{safe_name}' {'actualizada' if is_update else 'creada'} en disco. "
+                    f"Conexión a Index: {'CONECTADA al Index central' if connect_to_index else 'DESCONECTADA / AISLADA del Index'}. "
+                    f"Contenido: {'Secuencia de Fibonacci agregada' if 'fibonacci' in all_context_text else ('Pi agregado' if 'pi' in all_context_text else ('Contenido registrado' if custom_content else 'Inicializada'))}."
+                )
+
+                memory_action_executed = {
+                    "action": "update_note" if is_update else "create_note",
+                    "title": safe_name,
+                    "path": str(note_file.relative_to(VAULT_PATH)),
+                    "folder": folder_name,
+                    "connected_to_index": connect_to_index,
+                    "summary": action_summary
+                }
+                print(f"[Chat] {action_summary}")
+        except Exception as e:
+            print(f"[Chat] Error procesando nota solicitada: {e}")
+
+    # General memory triggers (learnings/rules)
     mem_triggers = [
         "recuerda que", "aprende que", "guarda en tu memoria", "guardalo en tu memoria",
         "guárdalo en tu memoria", "memoriza que", "nueva regla:", "crea una memoria",
         "guarda esta memoria", "guarda esto en tu memoria", "guarda en tu rag", "aprende esto",
         "a partir de ahora", "apartir de ahora", "nueva directiva", "nueva operativa"
     ]
-    if any(trigger in query_lower_mem for trigger in mem_triggers):
+    if not memory_action_executed and any(trigger in query_lower_mem for trigger in mem_triggers):
         try:
             from rag_engine_v2 import MemoryWriter
             mw = MemoryWriter(VAULT_PATH)
@@ -1588,12 +2031,27 @@ async def chat_endpoint(payload: ChatPayload):
                 flags=re.IGNORECASE
             ).strip()
             topic_title = topic_clean[:50].replace('\n', ' ').strip() or "Nuevo Aprendizaje"
-            mw.write_learning(
+            written_path = mw.write_learning(
                 topic=topic_title,
                 content=latest_query,
                 tags=["aprendizaje", "chat", "operador", "memoria-dinamica"],
                 module="general"
             )
+            if written_path:
+                memory_action_executed = {
+                    "action": "write_learning",
+                    "title": topic_title,
+                    "path": os.path.relpath(written_path, VAULT_PATH),
+                    "folder": "Aprendizajes",
+                    "connected_to_index": False
+                }
+                if manager:
+                    asyncio.create_task(manager.broadcast({
+                        "type": "vault_updated",
+                        "event": "created",
+                        "file": topic_title,
+                        "path": os.path.relpath(written_path, VAULT_PATH)
+                    }))
         except Exception as mem_err:
             print(f"[MemoryWriter] Error guardando aprendizaje desde chat: {mem_err}")
 
@@ -1678,7 +2136,28 @@ Debes basar tu respuesta ÚNICAMENTE en el bloque [HISTORIAL DE VERSIONES PARA C
     system_status, active_count, active_actionable = build_realtime_system_status(current_path)
     
     # 4. Assemble system prompt
-    # 4. Assemble system prompt
+    memory_action_instruction = ""
+    if memory_action_executed:
+        conn_text = "CONECTADA al [[Index]] central y a la raíz" if memory_action_executed.get("connected_to_index") else "DESCONECTADA / AISLADA del [[Index]] central (sin enlaces hacia o desde Index, nota independiente)"
+        act_verb = "actualizado" if memory_action_executed.get("action") == "update_note" else "creado"
+        memory_action_instruction = f"""
+[ACCIÓN DEL SISTEMA EJECUTADA EXITOSAMENTE EN DISCO Y BASE DE DATOS]
+El sistema de A.R.I.A ha {act_verb} REALMENTE en el disco la siguiente nota en el Obsidian Vault:
+- Archivo: {memory_action_executed['title']}.md
+- Ubicación: {memory_action_executed['path']}
+- Carpeta: {memory_action_executed['folder']}
+- Conexión a Index: {conn_text}
+- Detalle de la Operación: {memory_action_executed.get('summary', '')}
+
+Confirma al Jefe con precisión técnica lo realizado: si se le solicitó no conectar al Index, confirma que la nota está aislada sin enlace a Index; si se solicitó la secuencia de Fibonacci u otro contenido, confirma que ya está escrita en el cuerpo de la nota en disco.
+"""
+    else:
+        memory_action_instruction = """
+[DIRECTIVA ANTI-ALUCINACIÓN DE VAULT/MEMORIA (ESTRICTA)]
+NUNCA afirmes, confirmes ni inventes haber creado, guardado o indexado notas o archivos en el disco a menos que veas un bloque explícito [ACCIÓN DEL SISTEMA EJECUTADA EXITOSAMENTE EN DISCO Y BASE DE DATOS] en tu prompt.
+Si el usuario te pidió crear una nota o archivo y NO ves dicho bloque arriba, dile con honestidad que no se pudo procesar la creación en el sistema de archivos.
+"""
+
     if comparison_context:
         system_prompt = f"""Eres A.R.I.A (Asistente de Red Inteligente y Análisis), un asistente virtual avanzado de ciberseguridad y análisis de datos.
 
@@ -1711,6 +2190,8 @@ Instrucciones de Respuesta (CRÍTICAS):
 [BASE DE CONOCIMIENTO Y MEMORIA PERMANENTE (OBSIDIAN VAULT)]
 {rag_context}
 
+{memory_action_instruction}
+
 Instrucciones de Respuesta (CRÍTICAS):
 1. Responde de manera directa, concisa y en español con un tono casual y resolutivo, dirigiéndote al usuario como "Jefe" (o el vocativo que él te indique).
 2. Si el usuario te pregunta cuántas alertas activas hay, distingue CLARAMENTE entre lo que se muestra en la interfaz del Centro de Alertas y lo que está registrado en la base de datos:
@@ -1734,7 +2215,12 @@ Instrucciones de Respuesta (CRÍTICAS):
         req_data = json.dumps({
             "model": "gemma4:e4b",
             "messages": ollama_messages,
-            "stream": True
+            "stream": True,
+            "think": False,
+            "options": {
+                "num_ctx": 16384,
+                "temperature": 0.6
+            }
         }).encode('utf-8')
         
         req = urllib.request.Request(
@@ -1777,12 +2263,14 @@ async def rag_reindex():
     dir_chunks = idx.index_directory(DIRECTORY)
     
     elapsed = round((_time.time() - start) * 1000)
+    stats = idx.get_stats()
     
     return {
         "status": "ok",
-        "vault_chunks": vault_chunks,
-        "directory_chunks": dir_chunks,
-        "total_chunks": vault_chunks + dir_chunks,
+        "vault_chunks": stats.get("vault_chunks", vault_chunks),
+        "directory_chunks": stats.get("monitored_chunks", dir_chunks),
+        "total_chunks": stats.get("total_chunks", vault_chunks + dir_chunks),
+        "updated_chunks": vault_chunks + dir_chunks,
         "time_ms": elapsed
     }
 
@@ -2055,7 +2543,12 @@ Devuelve la respuesta en formato Markdown limpio y conciso."""
             {"role": "system", "content": "Eres A.R.I.A, un experto en ciberseguridad, auditoría y análisis lingüístico."},
             {"role": "user", "content": prompt}
         ],
-        "stream": False
+        "stream": False,
+        "think": False,
+        "options": {
+            "num_ctx": 16384,
+            "temperature": 0.4
+        }
     }).encode('utf-8')
     
     try:

@@ -86,8 +86,12 @@ export const ChatProvider = ({ children }) => {
               } else if (parsed.rag_sources) {
                 // Capture RAG source metadata from the final stream line
                 ragSources = parsed.rag_sources;
-              } else if (parsed.message && parsed.message.content) {
-                assistantResponse += parsed.message.content;
+              } else if (parsed.message) {
+                if (parsed.message.content) {
+                  assistantResponse += parsed.message.content;
+                } else if (parsed.message.thinking) {
+                  setStatusMessage('A.R.I.A está pensando...');
+                }
               }
 
               setMessages(prev => {
@@ -126,6 +130,18 @@ export const ChatProvider = ({ children }) => {
         } catch (e) {
           // ignore
         }
+      }
+
+      // Fallback if response remained empty after stream
+      if (!assistantResponse.trim() && status !== 'error') {
+        assistantResponse = "Disculpa, no pude generar una respuesta en este momento. Por favor, intenta de nuevo.";
+        setMessages(prev => {
+          const updated = [...prev];
+          if (updated.length > 0) {
+            updated[updated.length - 1] = { role: 'assistant', content: assistantResponse, ragSources };
+          }
+          return updated;
+        });
       }
 
     } catch (error) {

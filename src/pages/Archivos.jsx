@@ -35,6 +35,7 @@ import {
 import Header from '../components/Header';
 import Vault from './Vault';
 import FileViewerPanel from '../components/FileViewerPanel';
+import PdfIcon from '../components/PdfIcon';
 import './Archivos.css';
 
 const formatSize = (bytes) => {
@@ -98,7 +99,7 @@ const getMinimalFileIcon = (filename, size = 22) => {
   const ext = parts.length > 1 ? parts.pop().toLowerCase() : '';
   switch (ext) {
     case 'pdf':
-      return <FileText size={size} style={{ color: '#EF4444' }} />;
+      return <PdfIcon size={size} color="#EF4444" />;
     case 'doc':
     case 'docx':
       return <FileText size={size} style={{ color: '#3B82F6' }} />;

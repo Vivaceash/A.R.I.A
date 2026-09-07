@@ -415,9 +415,16 @@
 }
 
 [data-theme='light'] .assistant .bubble-text {
-  background-color: #F1F5F9;
-  color: var(--text-primary);
-  border: 1px solid var(--border-subtle);
+  background-color: #EEF2F6;
+  color: #334155;
+  border: 1px solid #E2E8F0;
+  line-height: 1.55;
+}
+
+[data-theme='light'] .assistant .bubble-text strong,
+[data-theme='light'] .assistant .bubble-text b {
+  color: #0F172A;
+  font-weight: 600;
 }
 
 [data-theme='light'] .chat-input-container {

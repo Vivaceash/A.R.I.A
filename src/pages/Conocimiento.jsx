@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Brain, RefreshCcw, Database, FileText, Hash, HardDrive, Loader2, CheckCircle2, AlertCircle, Share2, Activity } from 'lucide-react';
+import Header from '../components/Header';
 import VaultGraph from '../components/VaultGraph';
 import './Conocimiento.css';
 
@@ -27,6 +28,24 @@ const Conocimiento = () => {
 
   useEffect(() => {
     fetchStats();
+
+    let ws = null;
+    try {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      ws = new WebSocket(`${protocol}//${window.location.host}/api/ws`);
+      ws.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          if (msg.type === 'vault_updated' || msg.type === 'rag_status' || msg.type === 'file_modified') {
+            fetchStats();
+          }
+        } catch (e) {}
+      };
+    } catch (e) {}
+
+    return () => {
+      if (ws) ws.close();
+    };
   }, []);
 
   const handleReindex = async () => {
@@ -45,12 +64,10 @@ const Conocimiento = () => {
   };
 
   return (
-    <div className="conocimiento-page">
-      <div className="page-header">
-        <div className="header-title">
-          <Brain size={28} />
-          <h1>Base de Conocimiento</h1>
-        </div>
+    <div className={`conocimiento-page ${activeTab === 'graph' ? 'graph-mode' : ''}`}>
+      <Header title="Base de Conocimiento" showTimeframe={false} />
+
+      <div className="conocimiento-sub-header">
         <p className="header-subtitle">
           Sistema RAG vectorial y Memoria Gráfica — Obsidian Vault + ChromaDB
         </p>

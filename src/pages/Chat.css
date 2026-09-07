@@ -229,9 +229,25 @@
 
 .assistant .bubble-text {
   background-color: var(--bg-card);
-  color: var(--text-primary);
+  color: #94A3B8;
   border: 1px solid var(--border-color);
   border-top-left-radius: 2px;
+  line-height: 1.6;
+}
+
+.assistant .bubble-text strong,
+.assistant .bubble-text b {
+  color: #F1F5F9;
+  font-weight: 600;
+}
+
+.assistant .bubble-text h1,
+.assistant .bubble-text h2,
+.assistant .bubble-text h3 {
+  color: #F8FAFC;
+  font-weight: 700;
+  margin-top: 10px;
+  margin-bottom: 4px;
 }
 
 .user .bubble-text {
@@ -422,21 +438,35 @@
 
 /* Light Mode Overrides */
 [data-theme='light'] .assistant .bubble-text {
-  background-color: #FFFFFF;
-  color: var(--text-primary);
-  border: 1px solid var(--border-color);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  background-color: #EEF2F6;
+  color: #334155;
+  border: 1px solid #E2E8F0;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+  line-height: 1.6;
+}
+
+[data-theme='light'] .assistant .bubble-text strong,
+[data-theme='light'] .assistant .bubble-text b {
+  color: #0F172A;
+  font-weight: 600;
+}
+
+[data-theme='light'] .assistant .bubble-text h1,
+[data-theme='light'] .assistant .bubble-text h2,
+[data-theme='light'] .assistant .bubble-text h3 {
+  color: #0F172A;
+  font-weight: 700;
 }
 
 [data-theme='light'] .chat-code-block {
-  background-color: #F8FAFC;
-  border: 1px solid var(--border-color);
+  background-color: #FFFFFF;
+  border: 1px solid #CBD5E1;
 }
 
 [data-theme='light'] .chat-code-header {
-  background-color: #F1F5F9;
+  background-color: #F8FAFC;
   color: #475569;
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 1px solid #CBD5E1;
 }
 
 [data-theme='light'] .chat-code-block code {
@@ -444,7 +474,7 @@
 }
 
 [data-theme='light'] .assistant .chat-inline-code {
-  background-color: rgba(139, 92, 246, 0.1);
+  background-color: rgba(15, 23, 42, 0.07);
   color: #6D28D9;
 }
 

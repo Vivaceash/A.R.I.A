@@ -19,6 +19,8 @@ def parse_text_file(filepath):
 
 def parse_docx_file(filepath):
     try:
+        if not zipfile.is_zipfile(filepath):
+            return parse_text_file(filepath)
         with zipfile.ZipFile(filepath) as docx:
             xml_content = docx.read('word/document.xml')
             root = ET.fromstring(xml_content)
@@ -29,8 +31,12 @@ def parse_docx_file(filepath):
                         texts.append(elem.text)
             return " ".join(texts)
     except Exception as e:
-        print(f"Error parseando docx {filepath}: {e}")
-        return ""
+        # Fallback to plain text if zip reading fails
+        try:
+            return parse_text_file(filepath)
+        except Exception:
+            print(f"Error parseando docx {filepath}: {e}")
+            return ""
 
 def parse_pdf_file(filepath):
     try:
