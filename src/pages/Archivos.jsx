@@ -33,9 +33,10 @@ import {
   RotateCw
 } from 'lucide-react';
 import Header from '../components/Header';
-import Vault from './Vault';
 import FileViewerPanel from '../components/FileViewerPanel';
 import PdfIcon from '../components/PdfIcon';
+import DocIcon from '../components/DocIcon';
+import XlsIcon from '../components/XlsIcon';
 import './Archivos.css';
 
 const formatSize = (bytes) => {
@@ -102,11 +103,11 @@ const getMinimalFileIcon = (filename, size = 22) => {
       return <PdfIcon size={size} color="#EF4444" />;
     case 'doc':
     case 'docx':
-      return <FileText size={size} style={{ color: '#3B82F6' }} />;
+      return <DocIcon size={size} color="#3B82F6" label={ext.toUpperCase()} />;
     case 'xls':
     case 'xlsx':
     case 'csv':
-      return <FileSpreadsheet size={size} style={{ color: '#10B981' }} />;
+      return <XlsIcon size={size} color="#10B981" label={ext.toUpperCase()} />;
     case 'jpg':
     case 'jpeg':
     case 'png':
@@ -140,21 +141,7 @@ const getMinimalFileIcon = (filename, size = 22) => {
   }
 };
 
-export default function Archivos({ initialTab }) {
-  const [searchParams, setSearchParams] = useSearchParams();
-  const tabParam = searchParams.get('tab');
-  const [activeTab, setActiveTab] = useState(initialTab || (tabParam === 'vault' ? 'vault' : 'files'));
-
-  useEffect(() => {
-    if (tabParam === 'vault') {
-      setActiveTab('vault');
-    } else if (tabParam === 'files') {
-      setActiveTab('files');
-    } else if (initialTab) {
-      setActiveTab(initialTab);
-    }
-  }, [tabParam, initialTab]);
-
+export default function Archivos() {
   const [files, setFiles] = useState([]);
   const [modulesList, setModulesList] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -530,199 +517,169 @@ export default function Archivos({ initialTab }) {
         </div>
       )}
 
-      {/* Top Action Tabs Bar */}
+      {/* Top Action Bar */}
       <div className="archivos-top-bar">
-        <div className="archivos-tabs-nav">
+        <div className="archivos-top-actions" style={{ marginLeft: 'auto' }}>
           <button
-            className={`archivos-tab-pill ${activeTab === 'files' ? 'active' : ''}`}
-            onClick={() => {
-              setActiveTab('files');
-              setSearchParams({});
-            }}
+            className="btn-upload-primary"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploading}
           >
-            <FolderOpen size={16} />
-            <span>Explorador de Archivos</span>
-          </button>
-          <button
-            className={`archivos-tab-pill ${activeTab === 'vault' ? 'active' : ''}`}
-            onClick={() => {
-              setActiveTab('vault');
-              setSearchParams({ tab: 'vault' });
-            }}
-          >
-            <Archive size={16} />
-            <span>Bóveda de Recuperación (Vault)</span>
+            {uploading ? <RotateCw size={16} className="spin-icon" /> : <Plus size={16} />}
+            <span>{uploading ? 'Subiendo...' : 'Subir Archivo'}</span>
+            <ChevronDown size={14} className="upload-chevron" />
           </button>
         </div>
-
-        {activeTab === 'files' && (
-          <div className="archivos-top-actions">
-            <button
-              className="btn-upload-primary"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={uploading}
-            >
-              {uploading ? <RotateCw size={16} className="spin-icon" /> : <Plus size={16} />}
-              <span>{uploading ? 'Subiendo...' : 'Subir Archivo'}</span>
-              <ChevronDown size={14} className="upload-chevron" />
-            </button>
-          </div>
-        )}
       </div>
 
-      {activeTab === 'vault' ? (
-        <Vault isEmbedded={true} />
-      ) : (
-        <div className="archivos-main-layout">
-          {/* Main Content Column */}
-          <div className="archivos-content-column">
-            {/* Toolbar & Filters Bar */}
-            <div className="archivos-toolbar">
-              {/* Search Bar */}
-              <div className="archivos-search-box">
-                <Search size={18} className="search-icon" />
-                <input
-                  type="text"
-                  placeholder="Buscar por nombre o propietario..."
-                  className="archivos-search-input"
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                />
-                {searchTerm && (
-                  <button className="clear-search-btn" onClick={() => setSearchTerm('')}>
-                    <X size={14} />
+      <div className="archivos-container">
+          {/* Toolbar & Filters Bar */}
+          <div className="archivos-toolbar">
+            {/* Search Bar */}
+            <div className="archivos-search-box">
+              <Search size={18} className="search-icon" />
+              <input
+                type="text"
+                placeholder="Buscar por nombre o propietario..."
+                className="archivos-search-input"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
+              {searchTerm && (
+                <button className="clear-search-btn" onClick={() => setSearchTerm('')}>
+                  <X size={14} />
+                </button>
+              )}
+            </div>
+
+            <div className="archivos-toolbar-right">
+              {/* Filters Button */}
+              <button
+                className={`toolbar-btn filter-toggle-btn ${showFiltersModal || selectedExtensions.length > 0 ? 'active' : ''}`}
+                onClick={() => setShowFiltersModal(!showFiltersModal)}
+                title="Filtros avanzados"
+              >
+                <Filter size={16} />
+                <span>Filtros</span>
+                {selectedExtensions.length > 0 && (
+                  <span className="filters-count-badge">{selectedExtensions.length}</span>
+                )}
+              </button>
+
+              {/* View Mode Toggle */}
+              <div className="view-mode-switch">
+                <button
+                  className={`view-mode-btn ${viewMode === 'grid' ? 'active' : ''}`}
+                  onClick={() => setViewMode('grid')}
+                  title="Vista de Cuadrícula"
+                >
+                  <Grid size={17} />
+                </button>
+                <button
+                  className={`view-mode-btn ${viewMode === 'list' ? 'active' : ''}`}
+                  onClick={() => setViewMode('list')}
+                  title="Vista de Lista"
+                >
+                  <ListIcon size={17} />
+                </button>
+              </div>
+
+              {/* Sort Selector */}
+              <div className="sort-box">
+                <span className="sort-label">Ordenar por:</span>
+                <select
+                  className="sort-dropdown"
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value)}
+                >
+                  <option value="mtime">Fecha</option>
+                  <option value="name">Nombre</option>
+                  <option value="type">Tipo de archivo</option>
+                  <option value="size">Tamaño</option>
+                </select>
+                <button
+                  className="sort-direction-btn"
+                  onClick={toggleSortOrder}
+                  title={`Orden ${sortOrder === 'asc' ? 'Ascendente' : 'Descendente'}`}
+                >
+                  {sortOrder === 'asc' ? <ArrowUp size={16} /> : <ArrowDown size={16} />}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Filter Drawer Popup */}
+          {showFiltersModal && (
+            <div className="filters-drawer fade-in">
+              <div className="filters-drawer-header">
+                <span>Filtrar por extensión de archivo</span>
+                {selectedExtensions.length > 0 && (
+                  <button className="reset-filters-btn" onClick={() => setSelectedExtensions([])}>
+                    Limpiar filtros
+                  </button>
+                )}
+              </div>
+              <div className="filter-chips-grid">
+                {availableExtensions.map((ext) => (
+                  <button
+                    key={ext}
+                    className={`filter-chip ${selectedExtensions.includes(ext) ? 'active' : ''}`}
+                    onClick={() => toggleExtension(ext)}
+                  >
+                    <span>.{ext}</span>
+                    {selectedExtensions.includes(ext) && <Check size={12} />}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Section 1: Carpetas (ONLY real folders that exist) */}
+          {folderCards.length > 0 && (
+            <div className="archivos-section">
+              <div className="section-header">
+                <h2 className="section-title">Carpetas</h2>
+                {selectedFolder !== 'all' && (
+                  <button className="clear-folder-filter" onClick={() => setSelectedFolder('all')}>
+                    Ver todas ({files.length} archivos)
                   </button>
                 )}
               </div>
 
-              <div className="archivos-toolbar-right">
-                {/* Filters Button */}
-                <button
-                  className={`toolbar-btn filter-toggle-btn ${showFiltersModal || selectedExtensions.length > 0 ? 'active' : ''}`}
-                  onClick={() => setShowFiltersModal(!showFiltersModal)}
-                  title="Filtros avanzados"
-                >
-                  <Filter size={16} />
-                  <span>Filtros</span>
-                  {selectedExtensions.length > 0 && (
-                    <span className="filters-count-badge">{selectedExtensions.length}</span>
-                  )}
-                </button>
-
-                {/* View Mode Toggle */}
-                <div className="view-mode-switch">
-                  <button
-                    className={`view-mode-btn ${viewMode === 'grid' ? 'active' : ''}`}
-                    onClick={() => setViewMode('grid')}
-                    title="Vista de Cuadrícula"
-                  >
-                    <Grid size={17} />
-                  </button>
-                  <button
-                    className={`view-mode-btn ${viewMode === 'list' ? 'active' : ''}`}
-                    onClick={() => setViewMode('list')}
-                    title="Vista de Lista"
-                  >
-                    <ListIcon size={17} />
-                  </button>
-                </div>
-
-                {/* Sort Selector */}
-                <div className="sort-box">
-                  <span className="sort-label">Ordenar por:</span>
-                  <select
-                    className="sort-dropdown"
-                    value={sortBy}
-                    onChange={(e) => setSortBy(e.target.value)}
-                  >
-                    <option value="mtime">Fecha</option>
-                    <option value="name">Nombre</option>
-                    <option value="type">Tipo de archivo</option>
-                    <option value="size">Tamaño</option>
-                  </select>
-                  <button
-                    className="sort-direction-btn"
-                    onClick={toggleSortOrder}
-                    title={`Orden ${sortOrder === 'asc' ? 'Ascendente' : 'Descendente'}`}
-                  >
-                    {sortOrder === 'asc' ? <ArrowUp size={16} /> : <ArrowDown size={16} />}
-                  </button>
-                </div>
+              <div className="folders-grid">
+                {folderCards.map((folder, idx) => {
+                  const isSelected = selectedFolder.toLowerCase() === folder.name.toLowerCase();
+                  return (
+                    <div
+                      key={idx}
+                      className={`folder-card ${isSelected ? 'selected' : ''}`}
+                      onClick={() => setSelectedFolder(isSelected ? 'all' : folder.name)}
+                    >
+                      <div className="folder-card-main">
+                        <div className="folder-icon-wrapper" style={{ color: folder.color }}>
+                          <Folder size={26} fill={folder.color} fillOpacity={0.9} />
+                        </div>
+                        <div className="folder-info">
+                          <h4 className="folder-name">{folder.name}</h4>
+                          <span className="folder-count">{folder.count} archivos</span>
+                        </div>
+                      </div>
+                      <button
+                        className="folder-menu-btn"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleOpenFolder();
+                        }}
+                        title="Abrir en explorador"
+                      >
+                        <MoreVertical size={16} />
+                      </button>
+                    </div>
+                  );
+                })}
               </div>
             </div>
-
-            {/* Filter Drawer Popup */}
-            {showFiltersModal && (
-              <div className="filters-drawer fade-in">
-                <div className="filters-drawer-header">
-                  <span>Filtrar por extensión de archivo</span>
-                  {selectedExtensions.length > 0 && (
-                    <button className="reset-filters-btn" onClick={() => setSelectedExtensions([])}>
-                      Limpiar filtros
-                    </button>
-                  )}
-                </div>
-                <div className="filter-chips-grid">
-                  {availableExtensions.map((ext) => (
-                    <button
-                      key={ext}
-                      className={`filter-chip ${selectedExtensions.includes(ext) ? 'active' : ''}`}
-                      onClick={() => toggleExtension(ext)}
-                    >
-                      <span>.{ext}</span>
-                      {selectedExtensions.includes(ext) && <Check size={12} />}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Section 1: Carpetas (ONLY real folders that exist) */}
-            {folderCards.length > 0 && (
-              <div className="archivos-section">
-                <div className="section-header">
-                  <h2 className="section-title">Carpetas</h2>
-                  {selectedFolder !== 'all' && (
-                    <button className="clear-folder-filter" onClick={() => setSelectedFolder('all')}>
-                      Ver todas ({files.length} archivos)
-                    </button>
-                  )}
-                </div>
-
-                <div className="folders-grid">
-                  {folderCards.map((folder, idx) => {
-                    const isSelected = selectedFolder.toLowerCase() === folder.name.toLowerCase();
-                    return (
-                      <div
-                        key={idx}
-                        className={`folder-card ${isSelected ? 'selected' : ''}`}
-                        onClick={() => setSelectedFolder(isSelected ? 'all' : folder.name)}
-                      >
-                        <div className="folder-card-main">
-                          <div className="folder-icon-wrapper" style={{ color: folder.color }}>
-                            <Folder size={26} fill={folder.color} fillOpacity={0.9} />
-                          </div>
-                          <div className="folder-info">
-                            <h4 className="folder-name">{folder.name}</h4>
-                            <span className="folder-count">{folder.count} archivos</span>
-                          </div>
-                        </div>
-                        <button
-                          className="folder-menu-btn"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleOpenFolder();
-                          }}
-                          title="Abrir en explorador"
-                        >
-                          <MoreVertical size={16} />
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
+          )}
 
             {/* Section 2: Archivos (Files) */}
             <div className="archivos-section files-section">
@@ -733,7 +690,9 @@ export default function Archivos({ initialTab }) {
                 </span>
               </div>
 
-              {loading ? (
+              <div className="archivos-files-layout">
+                <div className="archivos-files-main">
+                  {loading ? (
                 <div className="loading-state-card">
                   <RotateCw size={24} className="spin-icon" />
                   <p>Cargando archivos del sistema...</p>
@@ -1020,21 +979,21 @@ export default function Archivos({ initialTab }) {
                 </div>
               )}
             </div>
-          </div>
 
-          {/* Right Side Panel: File Details & PDF/Word/Document Viewer */}
-          <div className="archivos-side-column">
-            <FileViewerPanel
-              file={selectedFile}
-              onClose={() => setSelectedFile(null)}
-              onDownload={handleDownload}
-              onDelete={handleDeleteFile}
-              isFavorite={selectedFile ? favorites.includes(selectedFile.name) : false}
-              onToggleFavorite={toggleFavorite}
-            />
+            {/* Right Side Panel: File Details & PDF/Word/Document Viewer */}
+            <div className="archivos-side-column">
+              <FileViewerPanel
+                file={selectedFile}
+                onClose={() => setSelectedFile(null)}
+                onDownload={handleDownload}
+                onDelete={handleDeleteFile}
+                isFavorite={selectedFile ? favorites.includes(selectedFile.name) : false}
+                onToggleFavorite={toggleFavorite}
+              />
+            </div>
           </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }

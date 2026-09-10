@@ -310,18 +310,43 @@ def get_latest_snapshots(filename, limit=2):
     conn.close()
     return rows
 
+def trigger_hermes_alert_check():
+    import subprocess
+    import shutil
+    hermes_bin = os.path.expanduser("~/.local/bin/hermes")
+    if not os.path.exists(hermes_bin):
+        hermes_bin = shutil.which("hermes")
+    if hermes_bin and os.path.exists(hermes_bin):
+        try:
+            # Trigger immediate check in background without blocking
+            subprocess.Popen(
+                [hermes_bin, "cron", "run", "c85b4820529c"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True
+            )
+        except Exception:
+            pass
+
 def log_event(alert_id, filename, description, event_type, severity, icon_class, timestamp=None, file_path=None, file_size=None, owner=None, ai_analysis=None):
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
+    is_live_event = timestamp is None
     if not timestamp:
         timestamp = datetime.now().isoformat()
-        
+
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
     c.execute('''
         INSERT OR IGNORE INTO alert_history (id, filename, description, event_type, severity, icon_class, timestamp, file_path, file_size, owner, ai_analysis)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ''', (alert_id, filename, description, event_type, severity, icon_class, timestamp, file_path, file_size, owner, ai_analysis))
     conn.commit()
     conn.close()
+
+    # Si es una alerta crítica o alta, o una comparación de cambios, notificar a Hermes de inmediato
+    if is_live_event:
+        sev_cap = (severity or "").capitalize()
+        if sev_cap in ("Alto", "Crítico") or event_type == "Comparación":
+            trigger_hermes_alert_check()
 
 def get_alert_history(limit=50, hours=None, module=None):
     conn = sqlite3.connect(DB_FILE)
@@ -740,50 +765,117 @@ def get_files(module: str = None):
 @app.get("/api/comparisons")
 def get_comparisons(module: str = None):
     conn = sqlite3.connect(DB_FILE)
+    conn.row_factory = sqlite3.Row
     c = conn.cursor()
-    c.execute('''
-        SELECT id, filename, description, event_type, severity, icon_class, timestamp, resolved, resolved_by, resolved_at, file_path, file_size, owner, ai_analysis 
-        FROM alert_history 
-        WHERE event_type = 'Comparación'
-        ORDER BY timestamp DESC
-    ''')
+    
+    # Query all snapshots grouped by filename
+    c.execute('SELECT id, filename, timestamp FROM file_snapshots ORDER BY timestamp DESC')
     rows = c.fetchall()
+    
+    files_map = {}
+    for r in rows:
+        fname = r["filename"]
+        if fname not in files_map:
+            files_map[fname] = {
+                "id": r["id"],
+                "name": fname,
+                "title": fname,
+                "snapshots": [],
+                "versionCount": 0,
+                "latestTimestamp": r["timestamp"],
+                "timestamp": r["timestamp"],
+                "time": calculate_time_ago(r["timestamp"]),
+                "size": 0,
+                "owner": "Astra",
+                "folder": "General",
+                "filePath": None,
+                "severity": "Medio",
+                "aiAnalysis": ""
+            }
+        files_map[fname]["snapshots"].append({
+            "id": r["id"],
+            "timestamp": r["timestamp"]
+        })
+        
+    for fname, data in files_map.items():
+        data["versionCount"] = len(data["snapshots"])
+        
+        # Check alert history for owner, severity, file path and size
+        c.execute('''
+            SELECT severity, owner, file_path, file_size, ai_analysis 
+            FROM alert_history 
+            WHERE filename = ? 
+            ORDER BY timestamp DESC LIMIT 1
+        ''', (fname,))
+        alert_row = c.fetchone()
+        if alert_row:
+            if alert_row["severity"]: data["severity"] = alert_row["severity"]
+            if alert_row["owner"]: data["owner"] = alert_row["owner"]
+            if alert_row["file_path"]: data["filePath"] = alert_row["file_path"]
+            if alert_row["file_size"]: data["size"] = alert_row["file_size"]
+            if alert_row["ai_analysis"]: data["aiAnalysis"] = alert_row["ai_analysis"]
+
+        # If aiAnalysis was not set by the latest alert, look for the latest alert that actually contains an AI audit
+        if not data["aiAnalysis"]:
+            c.execute('''
+                SELECT severity, ai_analysis 
+                FROM alert_history 
+                WHERE filename = ? AND ai_analysis IS NOT NULL AND ai_analysis != ''
+                ORDER BY timestamp DESC LIMIT 1
+            ''', (fname,))
+            audit_row = c.fetchone()
+            # If still not found and this is a restored file, try the original file name
+            if not audit_row and ('_RESTAURADO_' in fname or '_REST_' in fname):
+                base_name = re.sub(r'_(?:RESTAURADO|REST)_[0-9_\-]+(\.[^.]+)$', r'\1', fname)
+                c.execute('''
+                    SELECT severity, ai_analysis 
+                    FROM alert_history 
+                    WHERE filename = ? AND ai_analysis IS NOT NULL AND ai_analysis != ''
+                    ORDER BY timestamp DESC LIMIT 1
+                ''', (base_name,))
+                audit_row = c.fetchone()
+            if audit_row:
+                if audit_row["severity"]: data["severity"] = audit_row["severity"]
+                if audit_row["ai_analysis"]: data["aiAnalysis"] = audit_row["ai_analysis"]
+            
+        # Verify if file currently exists on disk to get live size and folder
+        disk_path = os.path.join(DIRECTORY, fname)
+        if os.path.exists(disk_path) and os.path.isfile(disk_path):
+            try:
+                data["size"] = os.path.getsize(disk_path)
+                data["filePath"] = disk_path
+            except Exception:
+                pass
+        else:
+            # Search recursively in DIRECTORY
+            for root, dirs, fnames in os.walk(DIRECTORY):
+                if fname in fnames:
+                    full_p = os.path.join(root, fname)
+                    try:
+                        data["size"] = os.path.getsize(full_p)
+                        data["filePath"] = full_p
+                        rel = os.path.relpath(root, DIRECTORY)
+                        if rel != '.':
+                            data["folder"] = rel
+                    except Exception:
+                        pass
+                    break
+
     conn.close()
     
-    comparisons = []
-    seen_files = set()
-    for r in rows:
-        filepath = r[10]
-        if module and module.lower() != "general":
-            if not filepath:
-                continue
-            module_dir = os.path.abspath(os.path.join(DIRECTORY, module))
-            if not module_dir.startswith(os.path.abspath(DIRECTORY)):
-                continue
-            if not filepath.startswith(module_dir):
-                continue
-                
-        filename = r[1]
-        if filename not in seen_files:
-            seen_files.add(filename)
-            comparisons.append({
-                "id": r[0],
-                "name": filename,
-                "title": filename,
-                "description": r[2],
-                "type": r[3],
-                "severity": r[4],
-                "iconClass": r[5],
-                "time": calculate_time_ago(r[6]),
-                "timestamp": r[6],
-                "resolved": bool(r[7]),
-                "resolvedBy": r[8],
-                "resolvedAt": r[9],
-                "filePath": r[10],
-                "size": r[11] or 0,
-                "owner": r[12] or "Desconocido",
-                "aiAnalysis": r[13] or "Sin análisis detallado."
-            })
+    comparisons = list(files_map.values())
+    
+    # Filter by module if specified
+    if module and module.lower() != "general":
+        mod_clean = module.strip().lower()
+        comparisons = [
+            f for f in comparisons 
+            if f.get("folder", "").lower() == mod_clean 
+            or mod_clean in (f.get("filePath") or "").lower()
+        ]
+        
+    # Sort by latest timestamp descending
+    comparisons.sort(key=lambda x: str(x.get("latestTimestamp", "")), reverse=True)
     return comparisons
 
 @app.get("/api/download/{filename}")
@@ -1204,19 +1296,28 @@ def restore_vault_snapshot(snapshot_id: int):
     except Exception:
         formatted_date = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
-    new_filename = f"{name}_REST_{formatted_date}{ext}"
+    # Name restored file with RESTAURADO suffix to never overwrite original
+    new_filename = f"{name}_RESTAURADO_{formatted_date}{ext}"
     dest_path = os.path.join(DIRECTORY, new_filename)
     
     try:
-        with open(dest_path, "w", encoding="utf-8") as f:
-            f.write(content)
+        if content and content.startswith("base64:"):
+            import base64
+            raw_bytes = base64.b64decode(content[7:])
+            with open(dest_path, "wb") as f:
+                f.write(raw_bytes)
+            file_len = len(raw_bytes)
+        else:
+            with open(dest_path, "w", encoding="utf-8") as f:
+                f.write(content or "")
+            file_len = len(content.encode('utf-8')) if content else 0
             
-        owner = "Sistema (Restauración Vault)"
+        owner = "Sistema (Restauración Bóveda)"
         alert_id = f"res-vault-{int(time.time() * 1000)}-{new_filename}"
         desc = f"Archivo restaurado desde la Bóveda como {new_filename}."
-        log_event(alert_id, new_filename, desc, "Restauración Bóveda", "Bajo", "icon-info", None, dest_path, len(content), owner)
+        log_event(alert_id, new_filename, desc, "Restauración Bóveda", "Bajo", "icon-info", None, dest_path, file_len, owner)
         
-        return {"status": "success", "message": f"Snapshot {snapshot_id} restored as {new_filename}", "new_filename": new_filename}
+        return {"status": "success", "message": f"Snapshot {snapshot_id} restaurado con éxito como {new_filename}", "new_filename": new_filename}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -2245,6 +2346,84 @@ Instrucciones de Respuesta (CRÍTICAS):
 
     return StreamingResponse(event_generator(), media_type="application/x-ndjson")
 
+# ============================================================
+# HERMES INTEGRATION: RAG Query Endpoint
+# Allows Hermes autonomous agent to query A.R.I.A's vector DB
+# before taking autonomous decisions
+# ============================================================
+
+class RAGQueryPayload(BaseModel):
+    query: str
+    top_k: int = 4
+    include_stats: bool = True
+    module: str = ""
+
+@app.post("/api/rag/query")
+async def rag_query_for_hermes(payload: RAGQueryPayload):
+    """
+    Endpoint para consultas RAG autónomas desde Hermes Agent.
+    Hermes llama esto ANTES de tomar cualquier decisión,
+    usando el conocimiento acumulado de A.R.I.A como contexto.
+    """
+    from rag_engine_v2 import retrieve_context_with_sources
+    
+    query = payload.query
+    if payload.module:
+        query = f"[{payload.module.upper()}] {query}"
+    
+    try:
+        context, sources = retrieve_context_with_sources(
+            query, top_k=payload.top_k
+        )
+    except Exception as e:
+        context, sources = f"RAG no disponible: {e}", []
+    
+    result = {
+        "context": context,
+        "sources": [
+            {
+                "type": s.get("type", ""),
+                "title": s.get("file", s.get("title", "")),
+                "folder": s.get("folder", ""),
+                "tags": s.get("tags", []),
+                "score": s.get("score", 0.0),
+            }
+            for s in (sources or [])
+        ],
+        "query": query,
+    }
+    
+    if payload.include_stats:
+        try:
+            conn = sqlite3.connect(DB_FILE)
+            c = conn.cursor()
+            c.execute("""
+                SELECT
+                    COUNT(*) as total,
+                    SUM(CASE WHEN resolved=0 THEN 1 ELSE 0 END) as active,
+                    SUM(CASE WHEN severity='Alto' AND resolved=0
+                             THEN 1 ELSE 0 END) as critical
+                FROM alert_history
+            """)
+            row = c.fetchone()
+            c.execute("""
+                SELECT COUNT(*) FROM alert_history
+                WHERE datetime(timestamp) >= datetime('now', '-2 hours')
+                AND resolved = 0
+            """)
+            recent = c.fetchone()[0]
+            conn.close()
+            result["system_status"] = {
+                "total_alerts": row[0] or 0,
+                "active_alerts": row[1] or 0,
+                "critical_alerts": row[2] or 0,
+                "recent_alerts_2h": recent or 0,
+            }
+        except Exception as e:
+            result["system_status"] = {"error": str(e)}
+    
+    return result
+
 # --- RAG Management Endpoints ---
 
 @app.post("/api/rag/reindex")
@@ -2659,6 +2838,7 @@ class DirectoryMonitor(FileSystemEventHandler):
             filepath = event.src_path
             _, ext = os.path.splitext(filename.lower())
             supported_exts = ['.txt', '.py', '.json', '.csv', '.md', '.log', '.js', '.css', '.html', '.docx', '.doc', '.xlsx', '.xls', '.pdf']
+            will_compare = False
             if ext in supported_exts:
                 time.sleep(0.8)
                 try:
@@ -2669,6 +2849,7 @@ class DirectoryMonitor(FileSystemEventHandler):
                 if snapshots:
                     old_content = snapshots[0][0]
                     if old_content.strip() != new_content.strip():
+                        will_compare = True
                         # Save snapshot and trigger comparison
                         save_file_snapshot(filename, new_content)
                         asyncio.run_coroutine_threadsafe(
@@ -2693,6 +2874,10 @@ class DirectoryMonitor(FileSystemEventHandler):
                         idx.index_single_file(filepath)
                 except Exception as e:
                     print(f"[DirectoryMonitor] RAG reindex error: {e}")
+
+            # Si no es un archivo de texto/documento soportado (e.g. binarios, zips), notificar la modificación de inmediato
+            if ext not in supported_exts:
+                trigger_hermes_alert_check()
 
     def on_deleted(self, event):
         if not event.is_directory:
@@ -2949,6 +3134,47 @@ async def startup_event():
     except Exception as e:
         print(f"[Startup] ⚠️ RAG v2 initialization failed: {e}")
         print("[Startup] Chat will work without vectorial RAG (degraded mode)")
+
+    # --- 4. Start Hermes Agent Gateway (Monitor Autónomo 24/7) ---
+    try:
+        start_hermes_gateway()
+    except Exception as e:
+        print(f"[Startup] ⚠️ Hermes Agent gateway no pudo iniciar: {e}")
+
+def start_hermes_gateway():
+    import subprocess
+    import shutil
+
+    # Verificar si el gateway ya está corriendo
+    try:
+        res = subprocess.run(["pgrep", "-f", "hermes gateway run"], stdout=subprocess.PIPE, text=True)
+        if res.stdout.strip():
+            pids = res.stdout.strip().splitlines()
+            print(f"[Startup] Hermes Agent Gateway ya activo en background (PID: {pids[0]}) ✅")
+            return
+    except Exception:
+        pass
+
+    hermes_bin = os.path.expanduser("~/.local/bin/hermes")
+    if not os.path.exists(hermes_bin):
+        hermes_bin = shutil.which("hermes")
+
+    if not hermes_bin or not os.path.exists(hermes_bin):
+        print("[Startup] ⚠️ Hermes no encontrado en ~/.local/bin/hermes")
+        return
+
+    logs_dir = os.path.join(BASE_DIR, "logs")
+    os.makedirs(logs_dir, exist_ok=True)
+    log_file = open(os.path.join(logs_dir, "hermes-gateway.log"), "a", encoding="utf-8")
+
+    proc = subprocess.Popen(
+        [hermes_bin, "gateway", "run"],
+        cwd=BASE_DIR,
+        stdout=log_file,
+        stderr=subprocess.STDOUT,
+        start_new_session=True
+    )
+    print(f"[Startup] Hermes Agent Gateway iniciado automáticamente (PID: {proc.pid}) ✅")
 
 @app.get("/api/iam/sessions")
 def get_iam_sessions():

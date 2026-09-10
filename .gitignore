@@ -42,4 +42,5 @@ _agent/
 *.db-journal
 signatures.json
 documentos_monitoreados/
+.hermes_alerts_seen.json
 

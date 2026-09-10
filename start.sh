@@ -40,6 +40,7 @@ cd "$PROJECT_DIR" || exit 1
 echo -e "${YELLOW}🛑 Verificando y limpiando procesos anteriores...${NC}"
 pkill -f "python.*server.py" 2>/dev/null || true
 pkill -f "vite" 2>/dev/null || true
+pkill -f "hermes gateway" 2>/dev/null || true
 sleep 1
 
 # 2. Iniciar / Verificar Ollama (Modelos LLM & Embeddings)
@@ -89,7 +90,32 @@ for i in {1..8}; do
 done
 echo -e "   ${GREEN}✓ Frontend activo en http://localhost:5173 (PID: $FRONTEND_PID)${NC}"
 
-# 5. Resumen de Estado
+# 5. Iniciar Hermes Agent (Monitor Autónomo de IA 24/7)
+echo -e "${BLUE}☤ Iniciando Hermes Agent (modo autónomo 24/7)...${NC}"
+HERMES_BIN="$HOME/.local/bin/hermes"
+if [ -x "$HERMES_BIN" ] || command -v hermes &>/dev/null; then
+    HERMES_CMD=$(command -v hermes 2>/dev/null || echo "$HERMES_BIN")
+    pkill -f "hermes gateway" 2>/dev/null || true
+    sleep 1
+
+    nohup "$HERMES_CMD" gateway run > "$LOGS_DIR/hermes-gateway.log" 2>&1 &
+    HERMES_GW_PID=$!
+    sleep 2
+
+    if ps -p $HERMES_GW_PID > /dev/null 2>&1; then
+        echo -e "   ${GREEN}✓ Hermes Gateway activo en background (PID: $HERMES_GW_PID)${NC}"
+        echo -e "   ${CYAN}  📱 Alertas automáticas: ACTIVAS${NC}"
+        echo -e "   ${CYAN}  📋 Resumen diario: 8:00 AM → Telegram${NC}"
+        echo -e "   ${CYAN}  🧠 Síntesis nocturna: 2:00 AM → Obsidian${NC}"
+        echo -e "   ${CYAN}  📊 Análisis semanal: Domingos 7:00 AM → Telegram${NC}"
+    else
+        echo -e "   ${RED}✗ Hermes Gateway no pudo iniciar. Ver logs/hermes-gateway.log${NC}"
+    fi
+else
+    echo -e "   ${YELLOW}⚠ Hermes no encontrado en el sistema.${NC}"
+fi
+
+# 6. Resumen de Estado
 LOCAL_IP=$(ip route get 1.1.1.1 2>/dev/null | awk '{print $7}' || ip addr show 2>/dev/null | grep -E "inet " | grep -v "127.0.0.1" | awk '{print $2}' | cut -d/ -f1 | head -n 1 || echo "")
 TAILSCALE_IP=$(tailscale ip -4 2>/dev/null || ip addr show tailscale0 2>/dev/null | grep -E "inet " | awk '{print $2}' | cut -d/ -f1 | head -n 1 || echo "")
 
@@ -109,4 +135,4 @@ echo -e "━━━━━━━━━━━━━━━━━━━━━━━�
 echo -e "${YELLOW}Comandos útiles:${NC}"
 echo -e "  • Ver logs del backend:   ${BOLD}tail -f $PROJECT_DIR/logs/server.log${NC}"
 echo -e "  • Ver logs del frontend:  ${BOLD}tail -f $PROJECT_DIR/logs/vite.log${NC}"
-echo -e "  • Detener servicios:      ${BOLD}pkill -f 'python.*server.py' && pkill -f 'vite'${NC}\n"
+echo -e "  • Detener servicios:      ${BOLD}pkill -f 'python.*server.py' && pkill -f 'vite' && pkill -f 'hermes gateway'${NC}\n"
