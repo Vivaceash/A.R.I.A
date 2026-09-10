@@ -35,8 +35,6 @@ import {
 import Header from '../components/Header';
 import FileViewerPanel from '../components/FileViewerPanel';
 import PdfIcon from '../components/PdfIcon';
-import DocIcon from '../components/DocIcon';
-import XlsIcon from '../components/XlsIcon';
 import './Archivos.css';
 
 const formatSize = (bytes) => {
@@ -103,11 +101,11 @@ const getMinimalFileIcon = (filename, size = 22) => {
       return <PdfIcon size={size} color="#EF4444" />;
     case 'doc':
     case 'docx':
-      return <DocIcon size={size} color="#3B82F6" label={ext.toUpperCase()} />;
+      return <FileText size={size} style={{ color: '#3B82F6' }} />;
     case 'xls':
     case 'xlsx':
     case 'csv':
-      return <XlsIcon size={size} color="#10B981" label={ext.toUpperCase()} />;
+      return <FileSpreadsheet size={size} style={{ color: '#10B981' }} />;
     case 'jpg':
     case 'jpeg':
     case 'png':

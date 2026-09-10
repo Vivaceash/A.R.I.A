@@ -31,8 +31,6 @@ import {
   BookOpen
 } from 'lucide-react';
 import PdfIcon from './PdfIcon';
-import DocIcon from './DocIcon';
-import XlsIcon from './XlsIcon';
 import './FileViewerPanel.css';
 
 const formatSize = (bytes) => {
@@ -89,11 +87,11 @@ const getFileIconComponent = (filename, size = 26) => {
       return <PdfIcon size={size} color="#EF4444" />;
     case 'doc':
     case 'docx':
-      return <DocIcon size={size} color="#3B82F6" label={ext.toUpperCase()} className="icon-doc" />;
+      return <FileText size={size} className="icon-doc" style={{ color: '#3B82F6' }} />;
     case 'xls':
     case 'xlsx':
     case 'csv':
-      return <XlsIcon size={size} color="#10B981" label={ext.toUpperCase()} className="icon-sheet" />;
+      return <FileSpreadsheet size={size} className="icon-sheet" style={{ color: '#10B981' }} />;
     case 'jpg':
     case 'jpeg':
     case 'png':
