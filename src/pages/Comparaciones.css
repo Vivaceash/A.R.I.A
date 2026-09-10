@@ -1,12 +1,35 @@
-/* Comparaciones.css - Modern Spatial Design matching Archivos Globales, Unified Auditoría & Bóveda Modal */
+/* Comparaciones.css - Scoped to .comparaciones-page-wrapper */
+
+/* Keyframes at root */
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
 
 .comparaciones-page-wrapper {
+
   display: flex;
   flex-direction: column;
   gap: 16px;
   width: 100%;
   padding-bottom: 30px;
-}
+
+
+/* Comparaciones.css - Modern Spatial Design matching Archivos Globales, Unified Auditoría & Bóveda Modal */
+
+
 
 .comparaciones-container {
   display: flex;
@@ -330,10 +353,7 @@
   animation: spin 1s linear infinite;
 }
 
-@keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
-}
+
 
 .btn-reset-search {
   padding: 8px 16px;
@@ -1552,37 +1572,30 @@
   animation: fadeIn 0.2s ease-out;
 }
 
-@keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
+
 
 .slide-up {
   animation: slideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-@keyframes slideUp {
-  from {
-    opacity: 0;
-    transform: translateY(20px) scale(0.98);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-}
+
 
 /* Responsive Rules */
+
+
+}
+
+/* Media Queries scoped */
 @media (max-width: 768px) {
-  .modal-header-bar {
+  .comparaciones-page-wrapper .modal-header-bar {
     flex-direction: column;
     align-items: flex-start;
   }
-  .modal-header-actions {
+  .comparaciones-page-wrapper .modal-header-actions {
     width: 100%;
     justify-content: flex-end;
   }
-  .files-grid-container {
+  .comparaciones-page-wrapper .files-grid-container {
     grid-template-columns: 1fr;
   }
 }

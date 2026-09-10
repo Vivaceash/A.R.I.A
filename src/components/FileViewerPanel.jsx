@@ -9,6 +9,8 @@ import {
   Terminal,
   X,
   Download,
+  Share2,
+  Link as LinkIcon,
   MoreHorizontal,
   Star,
   Search,
@@ -23,6 +25,7 @@ import {
   ShieldCheck,
   AlertTriangle,
   Info,
+  Check,
   Copy,
   Trash2,
   ExternalLink,
@@ -31,6 +34,8 @@ import {
   BookOpen
 } from 'lucide-react';
 import PdfIcon from './PdfIcon';
+import DocIcon from './DocIcon';
+import XlsIcon from './XlsIcon';
 import './FileViewerPanel.css';
 
 const formatSize = (bytes) => {
@@ -86,12 +91,15 @@ const getFileIconComponent = (filename, size = 26) => {
     case 'pdf':
       return <PdfIcon size={size} color="#EF4444" />;
     case 'doc':
+      return <DocIcon size={size} color="#3B82F6" label="DOC" className="icon-doc" />;
     case 'docx':
-      return <FileText size={size} className="icon-doc" style={{ color: '#3B82F6' }} />;
+      return <DocIcon size={size} color="#3B82F6" label="DOCX" className="icon-doc" />;
     case 'xls':
+      return <XlsIcon size={size} color="#10B981" label="XLS" className="icon-sheet" />;
     case 'xlsx':
+      return <XlsIcon size={size} color="#10B981" label="XLSX" className="icon-sheet" />;
     case 'csv':
-      return <FileSpreadsheet size={size} className="icon-sheet" style={{ color: '#10B981' }} />;
+      return <XlsIcon size={size} color="#10B981" label="CSV" className="icon-sheet" />;
     case 'jpg':
     case 'jpeg':
     case 'png':
@@ -175,6 +183,7 @@ export default function FileViewerPanel({
   const [activities, setActivities] = useState([]);
   const [loadingActivity, setLoadingActivity] = useState(false);
   const [showFullModal, setShowFullModal] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [docData, setDocData] = useState(null);
   const [loadingDoc, setLoadingDoc] = useState(false);
@@ -264,6 +273,26 @@ export default function FileViewerPanel({
     : '28 ago 2026, 9:45 PM';
 
   const defaultDescription = file.description || `Reporte e integridad de datos del archivo ${file.name}.`;
+
+  const handleCopyLink = () => {
+    const url = `${window.location.origin}/api/download/${encodeURIComponent(file.name)}`;
+    navigator.clipboard.writeText(url);
+    setCopiedLink(true);
+    setTimeout(() => setCopiedLink(false), 2500);
+  };
+
+  const handleShare = () => {
+    const url = `${window.location.origin}/api/download/${encodeURIComponent(file.name)}`;
+    if (navigator.share) {
+      navigator.share({
+        title: file.name,
+        text: `Acceso al archivo ${file.name} en ARIA`,
+        url: url
+      }).catch(() => {});
+    } else {
+      handleCopyLink();
+    }
+  };
 
   const handleZoomIn = () => setZoomLevel(prev => Math.min(prev + 20, 200));
   const handleZoomOut = () => setZoomLevel(prev => Math.max(prev - 20, 60));
@@ -525,6 +554,24 @@ export default function FileViewerPanel({
               >
                 <Download size={15} />
                 <span>Descargar</span>
+              </button>
+
+              <button
+                className="fvp-action-btn"
+                onClick={handleShare}
+                title="Compartir archivo"
+              >
+                <Share2 size={15} />
+                <span>Compartir</span>
+              </button>
+
+              <button
+                className={`fvp-action-btn ${copiedLink ? 'copied' : ''}`}
+                onClick={handleCopyLink}
+                title="Copiar enlace directo"
+              >
+                {copiedLink ? <Check size={15} color="#10B981" /> : <LinkIcon size={15} />}
+                <span>{copiedLink ? 'Copiado' : 'Copiar enlace'}</span>
               </button>
 
               <div className="fvp-more-container">

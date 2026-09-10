@@ -1,4 +1,7 @@
 import { X, CheckCircle, FileText, FileSpreadsheet, Image as ImageIcon, File, FileCode, FolderArchive, Terminal } from 'lucide-react';
+import PdfIcon from './PdfIcon';
+import DocIcon from './DocIcon';
+import XlsIcon from './XlsIcon';
 import '../pages/Archivos.css';
 import './CategoryModal.css';
 
@@ -7,15 +10,20 @@ const getFileIcon = (filename) => {
   const ext = parts.length > 1 ? parts.pop().toLowerCase() : '';
   
   switch (ext) {
-    case 'doc':
-    case 'docx':
-    case 'txt':
     case 'pdf':
+      return <PdfIcon size={48} color="#EF4444" />;
+    case 'doc':
+      return <DocIcon size={48} color="#3B82F6" label="DOC" className="file-icon-doc" />;
+    case 'docx':
+      return <DocIcon size={48} color="#3B82F6" label="DOCX" className="file-icon-doc" />;
+    case 'txt':
       return <FileText size={48} className="file-icon-doc" />;
     case 'xls':
+      return <XlsIcon size={48} color="#10B981" label="XLS" className="file-icon-sheet" />;
     case 'xlsx':
+      return <XlsIcon size={48} color="#10B981" label="XLSX" className="file-icon-sheet" />;
     case 'csv':
-      return <FileSpreadsheet size={48} className="file-icon-sheet" />;
+      return <XlsIcon size={48} color="#10B981" label="CSV" className="file-icon-sheet" />;
     case 'jpg':
     case 'jpeg':
     case 'png':

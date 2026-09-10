@@ -134,35 +134,7 @@
   margin-left: 2px;
 }
 
-/* Container for Files Tab */
-.archivos-container {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-  width: 100%;
-}
-
-/* Two-Column Files Layout (Files Grid on left, Preview Panel on right at the exact same level) */
-.archivos-files-layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 390px;
-  gap: 22px;
-  align-items: start;
-  width: 100%;
-}
-
-.archivos-files-main {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.archivos-side-column {
-  min-width: 0;
-}
-
-/* Two-Column Main Layout (Legacy alias) */
+/* Two-Column Main Layout */
 .archivos-main-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 390px;
@@ -175,6 +147,10 @@
   display: flex;
   flex-direction: column;
   gap: 24px;
+  min-width: 0;
+}
+
+.archivos-side-column {
   min-width: 0;
 }
 
@@ -480,7 +456,7 @@
 /* Section 1: Carpetas (Folders) Grid */
 .folders-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 260px));
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
   gap: 12px;
 }
 
@@ -993,7 +969,6 @@
 
 /* Responsive Breakpoints */
 @media (max-width: 1280px) {
-  .archivos-files-layout,
   .archivos-main-layout {
     grid-template-columns: minmax(0, 1fr) 340px;
     gap: 16px;
@@ -1001,7 +976,6 @@
 }
 
 @media (max-width: 1024px) {
-  .archivos-files-layout,
   .archivos-main-layout {
     grid-template-columns: 1fr;
   }
